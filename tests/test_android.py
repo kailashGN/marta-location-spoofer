@@ -1,0 +1,108 @@
+"""Android adb parsing and the helper command protocol. No phone required."""
+
+import asyncio
+import unittest
+
+from backend.android_adb import (
+    find_adb,
+    parse_adb_devices,
+    parse_android_identity,
+    parse_mock_granted,
+    parse_package_installed,
+    parse_version_code,
+)
+from backend.android_driver import AndroidDriver
+from backend.device import describe_android_device
+from backend.spoof import SpoofError
+
+
+DEVICES = """List of devices attached
+RZCW70G9EPZ            device usb:1-1 product:a34xdxx model:SM_A346E device:a34x transport_id:14
+ABCDEF                 unauthorized
+OFFLINE1               offline
+
+"""
+
+
+class AdbParseTests(unittest.TestCase):
+    def test_devices_including_unauthorized(self):
+        rows = parse_adb_devices(DEVICES)
+        self.assertEqual([r["serial"] for r in rows], ["RZCW70G9EPZ", "ABCDEF", "OFFLINE1"])
+        self.assertEqual(rows[0]["state"], "device")
+        self.assertEqual(rows[0]["model"], "SM_A346E")
+        self.assertEqual(rows[0]["connection"], "USB")
+        self.assertEqual(rows[1]["state"], "unauthorized")
+        self.assertEqual(rows[2]["state"], "offline")
+
+    def test_identity_and_package_fields(self):
+        model, release, name = parse_android_identity("SM-A346E\n16\nDesk phone\n")
+        self.assertEqual((model, release, name), ("SM-A346E", "16", "Desk phone"))
+        self.assertEqual(parse_android_identity("Pixel\n14\nnull\n")[2], None)
+        self.assertTrue(parse_package_installed("package:/data/app/com.locationspoofer.helper/base.apk\n"))
+        self.assertFalse(parse_package_installed(""))
+        self.assertEqual(parse_version_code("versionCode=1 minSdk=26 targetSdk=34"), 1)
+        self.assertIsNone(parse_version_code("Unable to find package"))
+        self.assertTrue(parse_mock_granted("MOCK_LOCATION: allow"))
+        self.assertFalse(parse_mock_granted("MOCK_LOCATION: default"))
+
+    def test_unauthorized_row_keeps_steps(self):
+        info = describe_android_device({"serial": "ABCDEF", "state": "unauthorized", "connection": "USB"})
+        self.assertEqual(info.platform, "android")
+        self.assertFalse(info.paired)
+        self.assertEqual(info.problem, "USB debugging not authorized")
+        self.assertTrue(info.steps)
+
+    def test_find_adb_prefers_path_and_reports_missing(self):
+        self.assertEqual(find_adb(which=lambda _name: "/usr/bin/adb", extra=[]), "/usr/bin/adb")
+        self.assertIsNone(find_adb(which=lambda _name: None, extra=[]))
+
+
+class _Reader:
+    def __init__(self, lines):
+        self.lines = list(lines)
+
+    async def readline(self):
+        return self.lines.pop(0)
+
+
+class _Writer:
+    def __init__(self):
+        self.buf = b""
+
+    def write(self, data):
+        self.buf += data
+
+    async def drain(self):
+        return None
+
+
+class HelperProtocolTests(unittest.TestCase):
+    def _driver(self, replies):
+        driver = AndroidDriver()
+        driver._reader = _Reader(replies)
+        driver._writer = _Writer()
+        return driver
+
+    def test_set_clear_and_ping_frames(self):
+        driver = self._driver([b"OK\n", b"OK\n", b"OK\n"])
+
+        async def run():
+            await driver._command("PING")
+            await driver.set(33.7488, -84.388)
+            await driver.clear()
+
+        asyncio.run(run())
+        self.assertEqual(driver._writer.buf, b"PING\nSET 33.7488 -84.388\nCLEAR\n")
+
+    def test_mock_denial_is_a_spoof_error(self):
+        driver = self._driver([
+            b"ERR mock location is not granted. Select Location Spoofer Helper in Developer options.\n",
+        ])
+        with self.assertRaises(SpoofError) as caught:
+            asyncio.run(driver.set(33.7, -84.4))
+        self.assertEqual(caught.exception.code, "mock_location")
+        self.assertIn("Developer options", " ".join(caught.exception.steps))
+
+
+if __name__ == "__main__":
+    unittest.main()

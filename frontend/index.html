@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Location Spoofer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230a84ff'/%3E%3Ccircle cx='32' cy='32' r='9' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" crossorigin="">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app" class="app">
+
+  <!-- Map — the content everything else floats over -->
+  <div id="map" class="map" aria-label="Map"></div>
+
+  <!-- Top chrome: translucent bar with title + device status -->
+  <header class="topbar material" role="banner">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div class="brand-text">
+        <h1 class="title">Location Spoofer</h1>
+        <p class="byline">by kailash-hubspire</p>
+      </div>
+    </div>
+
+    <div class="search">
+      <svg class="search-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12.7 12.7 17 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <input id="search" class="search-input" type="search" placeholder="Search a place or paste “lat, lon”" autocomplete="off" spellcheck="false" aria-label="Search a place">
+      <ul id="search-results" class="search-results material-solid" role="listbox" hidden></ul>
+    </div>
+
+    <div id="device-pill" class="device-pill" role="status" aria-live="polite">
+      <span class="dot dot-idle" id="device-dot"></span>
+      <span id="device-label">Looking for a phone…</span>
+    </div>
+  </header>
+
+  <!-- Primary sheet (bottom on phone, right rail on desktop) -->
+  <section id="sheet" class="sheet material" aria-label="Controls">
+    <div class="grabber" id="grabber" aria-hidden="true"><span></span></div>
+
+    <!-- Device card -->
+    <div class="card" id="device-card">
+      <div class="card-head">
+        <h2>Device</h2>
+        <button class="btn btn-quiet btn-sm" id="btn-refresh" type="button" title="Rescan for devices">Rescan</button>
+      </div>
+      <div id="device-body" class="device-body">
+        <p class="muted">Plug in an iPhone or an Android phone with a USB cable.</p>
+      </div>
+      <div class="row gap" id="device-actions">
+        <button class="btn btn-secondary" id="btn-prepare" type="button" hidden>Prepare</button>
+        <button class="btn btn-primary" id="btn-connect" type="button" disabled>Connect</button>
+      </div>
+    </div>
+
+    <!-- Location card -->
+    <div class="card" id="location-card">
+      <div class="card-head">
+        <h2>Location</h2>
+        <span class="chip" id="sim-chip" hidden>Simulating</span>
+      </div>
+      <div class="coords">
+        <label class="field">
+          <span class="field-label">Latitude</span>
+          <input id="lat" class="field-input" inputmode="decimal" placeholder="37.3349" aria-describedby="coord-error">
+        </label>
+        <label class="field">
+          <span class="field-label">Longitude</span>
+          <input id="lon" class="field-input" inputmode="decimal" placeholder="-122.0090" aria-describedby="coord-error">
+        </label>
+      </div>
+      <p id="coord-error" class="inline-error" role="alert" hidden></p>
+      <p class="hint">Click or tap the map to place the pin. Drag the pin to fine-tune.</p>
+      <div class="row gap">
+        <button class="btn btn-secondary" id="btn-clear" type="button" disabled>Stop Simulating</button>
+        <button class="btn btn-primary" id="btn-set" type="button" disabled>Set Location</button>
+      </div>
+    </div>
+
+    <!-- Favourites -->
+    <div class="card" id="fav-card">
+      <div class="card-head">
+        <h2>Favourites</h2>
+        <button class="btn btn-quiet btn-sm" id="btn-fav-add" type="button" disabled>Save Current</button>
+      </div>
+      <ul id="fav-list" class="list" aria-label="Favourite places"></ul>
+    </div>
+
+    <!-- Route (advanced, collapsed) -->
+    <details class="card details" id="route-card">
+      <summary class="card-head as-summary">
+        <h2>Route</h2>
+        <span class="chevron" aria-hidden="true"></span>
+      </summary>
+      <p class="hint">Move along a path. Click the map with route mode on to add waypoints, or load a GPX file.</p>
+      <div class="row gap wrap">
+        <button class="btn btn-secondary btn-sm" id="btn-route-mode" type="button" aria-pressed="false">Draw Waypoints</button>
+        <label class="btn btn-secondary btn-sm file-btn">Load GPX<input id="gpx-file" type="file" accept=".gpx,application/gpx+xml" hidden></label>
+        <button class="btn btn-quiet btn-sm" id="btn-route-clear" type="button">Clear Path</button>
+      </div>
+      <label class="toggle" id="route-gpx-times-wrap" hidden>
+        <input id="route-gpx-times" type="checkbox" checked>
+        <span class="toggle-track"><span class="toggle-knob"></span></span>
+        <span>Follow GPX timestamps</span>
+      </label>
+      <p class="small" id="route-gpx-times-hint" hidden>The pin starts at the current time and skips points already in the past.</p>
+      <div class="row gap wrap align-center" id="route-time-scale-wrap" hidden>
+        <label class="small" for="route-time-scale">Time scale</label>
+        <input id="route-time-scale" type="number" min="0.1" max="500" step="0.1" value="1" class="input-num" aria-describedby="route-time-scale-hint">
+        <span id="route-time-scale-hint" class="small muted">1 = real time · 5 = 5× faster</span>
+      </div>
+      <div class="seg" id="route-speed-seg" role="radiogroup" aria-label="Speed" hidden>
+        <button class="seg-item" data-speed="1.4" role="radio" aria-checked="true" type="button">Walk</button>
+        <button class="seg-item" data-speed="4.5" role="radio" aria-checked="false" type="button">Run</button>
+        <button class="seg-item" data-speed="7" role="radio" aria-checked="false" type="button">Bike</button>
+        <button class="seg-item" data-speed="15" role="radio" aria-checked="false" type="button">Drive</button>
+        <span class="seg-thumb" aria-hidden="true"></span>
+      </div>
+      <label class="toggle">
+        <input id="route-loop" type="checkbox"><span class="toggle-track"><span class="toggle-knob"></span></span>
+        <span>Loop</span>
+      </label>
+      <div id="route-progress" class="progress" hidden>
+        <div class="progress-bar"><span id="route-bar"></span></div>
+        <div class="row between small">
+          <span id="route-text">0 m</span>
+          <span id="route-eta"></span>
+        </div>
+      </div>
+      <div class="row gap">
+        <button class="btn btn-secondary" id="btn-route-stop" type="button" hidden>Stop Route</button>
+        <button class="btn btn-primary" id="btn-route-play" type="button" disabled>Start Route</button>
+      </div>
+      <div id="trip-test" hidden>
+        <p class="small">Trip test</p>
+        <div class="row gap wrap">
+          <button class="btn btn-secondary" id="btn-route-pause" type="button">Hold position</button>
+        </div>
+        <p class="small">Stay here while the trip clock runs. Hold at the stop to miss a departure.</p>
+        <div class="row gap wrap">
+          <button class="btn btn-secondary" id="btn-offset-left" type="button" aria-pressed="false">100 m left</button>
+          <button class="btn btn-secondary" id="btn-offset-right" type="button" aria-pressed="false">100 m right</button>
+          <button class="btn btn-secondary" id="btn-offset-clear" type="button">On course</button>
+        </div>
+        <p class="small">MARTA treats you as off course after you stay more than 50 m away for 30 seconds.</p>
+        <div class="row gap wrap" id="trip-pace" role="group" aria-label="Pace">
+          <button class="btn btn-secondary" id="btn-pace-slow" type="button" aria-pressed="false">Slower</button>
+          <button class="btn btn-secondary" id="btn-pace-normal" type="button" aria-pressed="true">Normal</button>
+          <button class="btn btn-secondary" id="btn-pace-fast" type="button" aria-pressed="false">Faster</button>
+        </div>
+        <p class="small" id="trip-pace-hint">Slower, normal, or faster on this walk or drive.</p>
+      </div>
+    </details>
+
+    <footer class="foot">
+      <span>Location Spoofer <span id="version"></span> · kailash-hubspire</span>
+      <span id="strategy-note" class="muted"></span>
+      <button class="btn btn-quiet btn-sm btn-danger" id="btn-quit" type="button" title="Stop simulating and quit Location Spoofer">Quit</button>
+    </footer>
+  </section>
+
+  <!-- Toasts: status / completion / warning / error -->
+  <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
+
+  <!-- Recovery sheet (only for blockers with steps) -->
+  <div id="scrim" class="scrim" hidden></div>
+  <div id="recover" class="recover material-solid" role="dialog" aria-modal="true" aria-labelledby="recover-title" hidden>
+    <h3 id="recover-title"></h3>
+    <ol id="recover-steps"></ol>
+    <div class="row gap end">
+      <button class="btn btn-secondary" id="recover-close" type="button">Close</button>
+      <button class="btn btn-primary" id="recover-retry" type="button">Try Again</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin=""></script>
+<script src="spring.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

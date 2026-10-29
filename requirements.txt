@@ -1,0 +1,5 @@
+pymobiledevice3>=11.12,<12
+fastapi>=0.110
+uvicorn>=0.29
+gpxpy>=1.6
+packaging>=23

@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+build/
+dist/
+*.spec.bak
+WORKFLOW.md
+icon.iconset/
+*.spec
