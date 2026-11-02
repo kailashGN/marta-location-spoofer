@@ -54,7 +54,7 @@
 Run from source (recommended for MARTA live-trip testing):
 
 ```bash
-git clone https://github.com/kailash-hubspire/marta-location-spoofer.git
+git clone https://github.com/kailashGN/marta-location-spoofer.git
 cd marta-location-spoofer
 scripts/run.sh
 ```
