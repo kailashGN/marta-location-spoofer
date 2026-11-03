@@ -145,7 +145,7 @@
     return true;
   }
 
-  /** Draw the active route from status (e.g. a GPX trip started by the MARTA app). */
+  /** Draw the active route from status (e.g. a route started from another tab or the HTTP API). */
   function syncActiveRouteOnMap(st) {
     const r = st && st.route;
     const key = routePathKey(r);
