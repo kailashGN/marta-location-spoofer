@@ -29,7 +29,7 @@
 - [Usage](#usage)
 - [FAQ](#faq)
 - [How it works](#how-it-works)
-- [MARTA dev integration (optional)](#marta-dev-integration-optional)
+- [Testing MARTA live trips](#testing-marta-live-trips)
 - [Build from source](#build-from-source)
 - [License](#license)
 - [Acknowledgements](#acknowledgements)
@@ -42,12 +42,12 @@
 - **Routes** – draw waypoints on the map or **Load GPX** and move along the path. Pause, loop, progress and ETA
 - **Timed GPX** – for tracks with `<time>` on each point, **Follow GPX timestamps** replays OTP-style schedules in real time (optional **Time scale**, e.g. 5× faster). Playback **joins at the current clock** and skips points already in the past
 - **Live trip testing** – while a route plays: **Hold position**, **100 m left/right** (off-course), **On course**, and **Slower / Normal / Faster** on walk/drive legs (`<cmt>rider</cmt>` in GPX). Pace and offset controls are disabled on transit legs
-- **Map sync** – when a route starts (from the UI or from the MARTA app over HTTP), the full path appears on the map
+- **Map sync** – when a route starts (from the UI or the HTTP API), the full path appears on the map
 - **Favourites** – one-click return to places you use often
 - **iPhone (iOS 14 – 26)** – legacy usbmux service or iOS 17+ developer tunnel, no `sudo`. Nothing permanent installed on the phone
 - **Android (8+)** – helper APK over USB (`adb`); mock location via test providers (`gps`, `network`, fused on API 31+)
 - **Native feel** – light and dark mode, spring motion, works at phone widths too
-- **Private by default** – runs on your Mac at `127.0.0.1:8420`. No accounts, no telemetry. Use `scripts/run-lan.sh` when a phone on Wi‑Fi must reach the API
+- **Private by default** – runs on your Mac at `127.0.0.1:8420`. No accounts, no telemetry
 
 ## Install
 
@@ -56,8 +56,10 @@ Run from source (recommended for MARTA live-trip testing):
 ```bash
 git clone https://github.com/kailashGN/marta-location-spoofer.git
 cd marta-location-spoofer
-scripts/run.sh
+./scripts/run.sh
 ```
+
+Run it from the repo root as shown (or `./run.sh` from inside `scripts/`). A bare `run.sh` won't work, because the shell doesn't look for commands in the current folder.
 
 The first run creates `.venv` and installs `requirements.txt` (needs Python 3 on the Mac), then opens the UI at `http://127.0.0.1:8420`.
 
@@ -129,7 +131,7 @@ Use a USB cable rather than Wi-Fi, make sure the phone is unlocked, quit Xcode o
 Confirm **Location Spoofer Helper** is the selected mock-location app in Developer options, then **Connect** again. Revoke and re-grant mock location if the system previously denied it.
 
 **Does this work over Wi-Fi?**
-iPhone spoofing is USB-only in practice. The **web UI** can listen on your LAN (`scripts/run-lan.sh`) so a phone app can `POST` routes to the Mac; GPS injection still goes over USB to the connected device.
+No. The phone stays connected by USB, and the web UI only listens on `127.0.0.1`, so nothing else on your network can reach it.
 
 **Is it safe?**
 On iOS it uses the same mechanism Xcode uses for *Debug → Simulate Location*. On Android it uses the standard mock-location test-provider API. Nothing is permanently modified on either device. Some apps forbid location spoofing in their terms of service – use responsibly, and only on devices you own.
@@ -149,21 +151,21 @@ Android has no equivalent developer service. A small helper app ([`android/helpe
 
 A Python **FastAPI** service does the device work. iPhones go through [pymobiledevice3](https://github.com/doronz88/pymobiledevice3); Android phones go through `adb` and the helper. The interface is a local web page. Protocol notes and sources live in [`docs/RESEARCH.md`](docs/RESEARCH.md).
 
-**HTTP API (for automation):** `POST /api/route/gpx` accepts GPX JSON (`use_gpx_times`, `time_scale`, …). Timed playback calls `align_gpx_to_now` so late uploads start at the current instant. Trip controls: `POST /api/route/pause`, `/api/route/offset`, `/api/route/pace`, `DELETE /api/route`.
+**HTTP API:** the web UI drives the server over a local HTTP API. `POST /api/route/gpx` accepts GPX JSON (`use_gpx_times`, `time_scale`, …). Timed playback calls `align_gpx_to_now` so late uploads start at the current instant. Trip controls: `POST /api/route/pause`, `/api/route/offset`, `/api/route/pace`, `DELETE /api/route`.
 
-## MARTA dev integration (optional)
+## Testing MARTA live trips
 
-The MARTA mobile app (non–store-production builds with `EXPO_PUBLIC_LOCATION_SPOOFER_URL`) can **`POST`** timestamped GPX to `/api/route/gpx` when a live trip starts, and **`DELETE`** `/api/route` when the trip ends. Testers can also **Download GPX** from the app Secret screen and load it manually.
+To test a real live trip on a phone without travelling, download the trip's GPX from the MARTA app and play it back here. The MARTA app never talks to Location Spoofer: you move the file across by hand.
 
-The phone must reach this server over Wi‑Fi while the device stays on USB for GPS injection:
+1. Connect the phone (see [Usage](#usage)). Keep the spoofer running for the whole test.
+2. In a non-production MARTA build, open the Secret menu (**More** tab, then 5 taps with two fingers) and make sure **Live Trip Simulator** is **OFF**. Otherwise the app ignores real GPS.
+3. Plan a trip and press **Start**.
+4. In the Secret menu, tap **Download GPX** (shown only while a trip is active), and send the file to the Mac (AirDrop, Drive, email…).
+5. In **Route**, press **Load GPX** and pick the file. Make sure **Follow GPX timestamps** is **ON** and **Time scale** is `1`, then press **Start Route**.
+6. Use the **Trip test** controls to hold at a stop, go 100 m off course, or change walking pace.
+7. When you're done, end the trip in the app, then press **Stop Route** or **Stop Simulating** to get the real GPS back.
 
-```bash
-cd marta-location-spoofer && ./scripts/run-lan.sh
-```
-
-That sets `LS_HOST=0.0.0.0` and runs the server (default port **8420**). Confirm: `lsof -iTCP:8420 -sTCP:LISTEN` should show `*:8420`, not `localhost:8420`.
-
-Press **Connect** in the UI before starting a trip. Full setup and troubleshooting: `docs/live-trip-hardware-gps.md` in the **marta-mobile-app** repo.
+Load the GPX soon after downloading it. Its times are the real timetable, so playback joins at the current time and skips points already in the past. If the whole trip is already over, nothing plays: start a new trip and download a fresh GPX. If the phone doesn't move at first, the first bus or train probably hasn't left yet.
 
 ## Build from source
 
@@ -184,7 +186,7 @@ frontend/ index.html · app.css · app.js · spring.js  (no build step)
 android/  helper app that injects mock fixes, plus the committed debug APK
 packaging/ app icon
 docs/     research notes, design rules
-scripts/  run.sh, run-lan.sh, build-helper.sh, build-app.sh, notarize.sh
+scripts/  run.sh, build-helper.sh, build-app.sh, notarize.sh
 tests/    unit tests
 ```
 
