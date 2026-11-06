@@ -43,6 +43,13 @@ class SampleTripTest(unittest.TestCase):
         self.assertEqual(len(holds), 1)
         self.assertLessEqual(waits[start], 1.0)
 
+    def test_start_walking_now_when_the_trip_begins_later(self):
+        timed = parse_gpx_timed(sample_gpx(NOW + 300))
+        points, pauses, legs, start = align_gpx_to_now(timed, 1.0, NOW)
+        self.assertGreater(pauses[start], 250)
+        waits, _ = walk_ahead(timed, points, pauses, legs, start, 1.0, NOW)
+        self.assertLessEqual(waits[start], 1.0)
+
 
 class PracticeModeTest(unittest.TestCase):
     def setUp(self):

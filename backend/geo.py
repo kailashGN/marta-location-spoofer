@@ -265,6 +265,9 @@ def walk_ahead(
             out[i] = dist / WALK_SPEED_MPS / time_scale
         elif i != start:
             out[i] = gap / time_scale
+        else:
+            # The joined wait also covers any time before a future first timestamp; walk now instead.
+            out[i] = min(out[i], gap / time_scale)
     holds: dict[int, float] = {}
     if board is not None:
         departs = timed[board].time_s

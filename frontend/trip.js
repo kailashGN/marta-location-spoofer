@@ -258,6 +258,7 @@
         } else {
           st = await api.post('/api/route', { points: R.waypoints, speed_mps: R.speed, loop });
         }
+        R.started = { at: Date.now() / 1000, scale: useTimes() ? R.scale : 1, speed: R.speed, loop };
         LS.applyStatus(st);
         LS.toast('status', useWalkAhead() ? 'Trip started · walking to the stop now' : 'Trip started');
       } catch (e) { LS.handleError(e, start); }
@@ -275,13 +276,44 @@
     move: '<svg viewBox="0 0 24 24"><path d="M12 3l6 16-6-4-6 4z" fill="currentColor"/></svg>',
   };
 
+  /** Seconds until the schedule's first walking step, while the pin still waits at the start; else null. */
+  function leaveIn(r) {
+    const g = R.gpx, s = R.started;
+    if (!g || !s || !g.startsWalking || g.firstMove == null) return null;
+    if (r.timing !== 'gpx' || r.walk_ahead || r.finished || r.leg !== 'rider') return null;
+    const now = Date.now() / 1000;
+    const left = (g.firstMove - s.at) / s.scale - (now - s.at);
+    return left > 5 ? left : null;
+  }
+
+  // Mid-trip version of the setup toggle: restart the same trip, walking to the stop now.
+  async function walkNow() {
+    const r = LS.activeRoute();
+    if (!r || !R.gpx || !R.started || leaveIn(r) == null) return;
+    await LS.busy($('btn-walk-now'), async () => {
+      try {
+        const st = await api.post('/api/route/gpx', {
+          gpx: R.gpx.text, speed_mps: R.started.speed, loop: R.started.loop, use_gpx_times: true,
+          time_scale: R.started.scale, walk_ahead: true,
+        });
+        $('route-walk-ahead').checked = true;
+        LS.applyStatus(st);
+        LS.toast('status', 'Walking to the stop now');
+      } catch (e) { LS.handleError(e); }
+    });
+  }
+  $('btn-walk-now').addEventListener('click', walkNow);
+
   function renderLive() {
     const st = state.status;
     const r = LS.activeRoute();
     if (!r) return;
+    const waitLeave = leaveIn(r);
+    $('btn-walk-now').hidden = waitLeave == null;
     let icon = 'move', title = 'Moving', sub = '', tone = '';
     if (r.finished) { icon = 'done'; title = 'Arrived'; sub = 'Route finished · holding at the destination'; tone = 'ok'; }
     else if (r.paused) { icon = 'hold'; title = 'Holding position'; sub = 'The trip clock keeps running'; tone = 'warn'; }
+    else if (waitLeave != null) { icon = 'wait'; title = 'Waiting to leave'; sub = `Leave-by in ${LS.fmtTime(waitLeave)} · or start walking now`; }
     else if (r.hold_s != null) { icon = 'wait'; title = 'Waiting at the stop'; sub = `Departs in ${LS.fmtTime(r.hold_s)}`; }
     else if (r.timing === 'gpx' && r.leg === 'transit') { icon = 'ride'; title = 'On the bus or train'; sub = 'Following the timetable'; }
     else if (r.timing === 'gpx') { icon = 'walk'; title = 'Walking'; sub = r.pace_factor !== 1 ? `Pace ${LS.fmtX(r.pace_factor)}` : 'Following the GPX schedule'; }
