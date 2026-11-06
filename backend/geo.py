@@ -10,6 +10,9 @@ from typing import Iterable
 import gpxpy
 
 EARTH_RADIUS_M = 6_371_000.0
+WALK_SPEED_MPS = 1.4
+# Slower than this between two GPX points counts as standing still.
+HOLD_SPEED_MPS = 0.5
 
 
 @dataclass(frozen=True)
@@ -218,3 +221,56 @@ def align_gpx_to_now(
         assert nxt is not None
         pauses[start] = max(0.0, (nxt - now) / time_scale)
     return points, pauses, legs, start
+
+
+def walk_ahead(
+    timed: list[TimedPoint],
+    points: list[Point],
+    pauses: list[float],
+    legs: list[str | None],
+    start: int,
+    time_scale: float = 1.0,
+    now: float | None = None,
+) -> tuple[list[float], dict[int, float]]:
+    """Walk to the first boarding stop now instead of waiting for the leave-by time.
+
+    Takes the output of :func:`align_gpx_to_now`. The walking stretch before the first ``transit``
+    point plays at once, at its own pace, with stationary holds (the wait before leave-by, an early
+    arrival at the stop) dropped. The pin then waits at the stop until the boarding point's own
+    timestamp, so the ride itself stays on the timetable.
+
+    Returns the new waits and ``holds``: index → seconds from now (scaled) until the gap after
+    that index may end. The player waits until that wall-clock deadline rather than a fixed
+    duration, so a slower walk eats into the wait instead of delaying the bus.
+    """
+    if now is None:
+        now = time.time()
+    if legs[start] != "rider":
+        raise ValueError(
+            "Start walking now only works when the trip begins with a walk "
+            "(the next GPX point must be tagged <cmt>rider</cmt>)"
+        )
+    board = next((i for i in range(start + 1, len(points)) if legs[i] == "transit"), None)
+    walk_end = len(pauses) if board is None else board - 1
+    out = list(pauses)
+    for i in range(start, walk_end):
+        dist = haversine_m(points[i], points[i + 1])
+        a, b = timed[i].time_s, timed[i + 1].time_s
+        assert a is not None and b is not None
+        gap = max(0.0, b - a)
+        if dist < 1.0:
+            out[i] = 0.0
+        elif gap > 0 and dist / gap < HOLD_SPEED_MPS:
+            # A crawl this slow is a wait (before leave-by, or early at the stop), not walking.
+            out[i] = dist / WALK_SPEED_MPS / time_scale
+        elif i != start:
+            out[i] = gap / time_scale
+        else:
+            # The joined wait also covers any time before a future first timestamp; walk now instead.
+            out[i] = min(out[i], gap / time_scale)
+    holds: dict[int, float] = {}
+    if board is not None:
+        departs = timed[board].time_s
+        assert departs is not None
+        holds[board - 1] = max(0.0, (departs - now) / time_scale)
+    return out, holds

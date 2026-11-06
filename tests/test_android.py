@@ -94,6 +94,23 @@ class HelperProtocolTests(unittest.TestCase):
         asyncio.run(run())
         self.assertEqual(driver._writer.buf, b"PING\nSET 33.7488 -84.388\nCLEAR\n")
 
+    def test_accuracy_freeze_and_resume_frames(self):
+        driver = self._driver([b"OK\n", b"OK\n", b"OK\n"])
+
+        async def run():
+            await driver.set(33.7488, -84.388, 150.0)
+            await driver.freeze()
+            await driver.resume()
+
+        asyncio.run(run())
+        self.assertEqual(driver._writer.buf, b"SET 33.7488 -84.388 150\nFREEZE\nRESUME\n")
+
+    def test_old_helper_rejecting_accuracy_says_update(self):
+        driver = self._driver([b"ERR expected SET <lat> <lon>\n"])
+        with self.assertRaises(SpoofError) as caught:
+            asyncio.run(driver.set(33.7, -84.4, 150.0))
+        self.assertEqual(caught.exception.code, "android_helper")
+
     def test_mock_denial_is_a_spoof_error(self):
         driver = self._driver([
             b"ERR mock location is not granted. Select Location Spoofer Helper in Developer options.\n",

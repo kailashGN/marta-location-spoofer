@@ -38,11 +38,20 @@
 
 ## Features
 
-- **Teleport** – click the map, drag the pin, search a place, or paste `lat, lon`
-- **Routes** – draw waypoints on the map or **Load GPX** and move along the path. Pause, loop, progress and ETA
-- **Timed GPX** – for tracks with `<time>` on each point, **Follow GPX timestamps** replays OTP-style schedules in real time (optional **Time scale**, e.g. 5× faster). Playback **joins at the current clock** and skips points already in the past
-- **Live trip testing** – while a route plays: **Hold position**, **100 m left/right** (off-course), **On course**, and **Slower / Normal / Faster** on walk/drive legs (`<cmt>rider</cmt>` in GPX). Pace and offset controls are disabled on transit legs
-- **Map sync** – when a route starts (from the UI or the HTTP API), the full path appears on the map
+- **Place** – click the map, drag the pin, search a place, or paste `lat, lon`, then **Set Location**
+- **Trip** – drop a GPX file (or draw a route) and see a summary first: distance, duration, walk/ride legs and the leave-by time. Timed GPX replays the real timetable, joining at the current clock; **Speed** plays it 2×, 5× or 10× faster
+- **Start walking now** – for trips that begin with a walk: walk to the first stop straight away, wait there for the departure, then follow the timetable
+- **Live trip panel** – what the rider is doing right now (walking, waiting at the stop with a countdown, on the bus or train, holding, arrived), progress and time left, **Hold** and **Stop trip**
+- **Test tools** – one compact list, one tool open at a time:
+  - **Off course** – any distance (0–5000 m, presets 100 · 300 · 450 · 500 · 600 · 1000), left or right, **Jump** or **Drift** over N seconds, then back on course the same way
+  - **Pace** – any walking pace from 0.25× to 4×; rides stay on the timetable
+  - **GPS signal** – **Frozen** (no updates), **Lost signal** (fixes too inaccurate to use; Android only), and **Jitter** up to ±100 m
+  - **Activity log** – every action and trip event with its time and leg; **Copy log** for bug reports
+- **Guided tour** – opens the first time; replay it from **?** in the top bar
+- **Test scenarios** – step-by-step recipes with the expected result; **Set up** opens the right tool with the values filled in
+- **Practice mode** – a demo phone and a ready-made sample trip (State Capitol → Five Points → Midtown), so you can learn the tools without a phone. Start it from the device pill or the end of the tour
+- **Built-in help** – every tool and trip option has an **(i)** that explains how it works and which MARTA rule it hits. **MARTA rules** in the top bar lists every live-trip rule (off course, GPS, missed departure, boarding, arrival, auto-end, notifications) with its number and how to test it, with a filter
+- **Map** – walks dotted grey, rides solid blue, stops marked; while off course a ghost dot shows the true position
 - **Favourites** – one-click return to places you use often
 - **iPhone (iOS 14 – 26)** – legacy usbmux service or iOS 17+ developer tunnel, no `sudo`. Nothing permanent installed on the phone
 - **Android (8+)** – helper APK over USB (`adb`); mock location via test providers (`gps`, `network`, fused on API 31+)
@@ -82,9 +91,10 @@ Xcode is **not** required.
 1. Enable Developer Mode on the iPhone if you haven't yet (it restarts once).
 2. Plug the phone into the Mac, unlock it, and tap **Trust** if asked.
 3. Open Location Spoofer. It opens in your browser at `http://127.0.0.1:8420`.
-4. **iPhone only:** if the sheet shows **Prepare**, press it once – this mounts Apple's Developer Disk Image (keep the phone unlocked).
-5. Press **Connect** (pick the device if several are listed).
-6. Click anywhere on the map and press **Set Location**.
+4. Click the device pill at the top right (it opens by itself when no phone is connected).
+5. **iPhone only:** if it shows **Prepare**, press it once – this mounts Apple's Developer Disk Image (keep the phone unlocked).
+6. Press **Connect** (pick the device if several are listed).
+7. In the **Place** tab, click anywhere on the map and press **Set Location**.
 
 Maps, Find My, and every other app now see the new location.
 
@@ -95,13 +105,15 @@ Maps, Find My, and every other app now see the new location.
 <details>
 <summary><b>Move along a route</b></summary>
 
-1. Open the **Route** section.
-2. Press **Draw Waypoints** and click along the map, or **Load GPX**.
-3. **GPX with timestamps:** turn on **Follow GPX timestamps** (default when the file has `<time>` on each point). Set **Time scale** if you want faster-than-real-time replay. The pin starts at **now** and skips past points.
-4. **GPX without timestamps** or a hand-drawn path: playback uses a fixed walk speed (1.4 m/s) between points.
-5. Press **Start Route**. Progress and time remaining show live. Use **Stop Route**, **Hold position**, or **Stop Simulating** as needed.
+1. Open the **Trip** tab.
+2. Drop a GPX file on the window (or click **Load a GPX file**), or choose **Draw a route on the map instead**.
+3. Check the summary: legs, distance, and when the trip leaves.
+4. **GPX with timestamps:** **Follow GPX timestamps** is on by default. Pick a **Speed** (1×, 2×, 5×, 10×, or a custom value under **More options**). The pin starts at **now** and skips past points.
+   If the trip begins with a walk, turn on **Start walking now** to skip the wait before the leave-by time: the pin walks to the first stop straight away, waits there until the bus or train's scheduled departure, then follows the timetable.
+5. **GPX without timestamps** or a drawn route: choose **Walk**, **Run**, **Bike** or **Drive**.
+6. Press **Start trip**. The panel switches to the live view with the test tools underneath.
 
-While a timed live trip is playing, use **Trip test** controls to hold at a stop (missed departure), shift **100 m** off course, or change pace on rider legs.
+Keyboard: **Space** holds or resumes, **O** goes off course or back with the current settings, **Esc** closes the device popover.
 
 </details>
 
@@ -151,9 +163,26 @@ Android has no equivalent developer service. A small helper app ([`android/helpe
 
 A Python **FastAPI** service does the device work. iPhones go through [pymobiledevice3](https://github.com/doronz88/pymobiledevice3); Android phones go through `adb` and the helper. The interface is a local web page. Protocol notes and sources live in [`docs/RESEARCH.md`](docs/RESEARCH.md).
 
-**HTTP API:** the web UI drives the server over a local HTTP API. `POST /api/route/gpx` accepts GPX JSON (`use_gpx_times`, `time_scale`, …). Timed playback calls `align_gpx_to_now` so late uploads start at the current instant. Trip controls: `POST /api/route/pause`, `/api/route/offset`, `/api/route/pace`, `DELETE /api/route`.
+Two loops share the work: the route runner moves the on-course point along the route on its schedule, and a publisher sends that point to the phone once a second, moved by the current off-course offset and jitter. Resending an unchanged point adds a 0.3 m nudge so the phone keeps getting fresh readings (MARTA treats 20 s without one as GPS lost). Frozen stops the publisher; Lost signal sends fixes with 150 m accuracy, which MARTA drops.
+
+**HTTP API:** the web UI drives the server over a local HTTP API.
+
+| Endpoint | Body | Does |
+|---|---|---|
+| `POST /api/route/gpx` | `gpx`, `use_gpx_times`, `time_scale`, `walk_ahead`, `loop` | Play a GPX file |
+| `POST /api/route` | `points`, `speed_mps`, `loop` | Play a drawn route |
+| `POST /api/route/pause` | `paused` | Hold or resume |
+| `POST /api/offset` | `side` (`left`/`right`/`none`), `meters` (0–5000), `ramp_s` (0–600) | Off course; `ramp_s` > 0 drifts. Works without a route too |
+| `POST /api/route/pace` | `factor` (0.25–4) | Walking pace |
+| `POST /api/gps` | `mode` (`normal`/`frozen`/`lost`), `jitter_m` (0–200) | GPS signal; `lost` is Android-only |
+| `GET`/`DELETE /api/log` | | Activity log |
+| `POST /api/demo` | `{enabled}` | Practice mode on or off (off also disconnects the demo phone) |
+| `GET /api/demo/sample.gpx` | | Sample trip, timed from now |
+| `DELETE /api/route` | | Stop the trip and stay where it ended |
 
 ## Testing MARTA live trips
+
+New here? Press **?** for the tour, try **Practice with a demo phone** (device pill), then open **Test scenarios** for step-by-step checks.
 
 To test a real live trip on a phone without travelling, download the trip's GPX from the MARTA app and play it back here. The MARTA app never talks to Location Spoofer: you move the file across by hand.
 
@@ -161,17 +190,32 @@ To test a real live trip on a phone without travelling, download the trip's GPX 
 2. In a non-production MARTA build, open the Secret menu (**More** tab, then 5 taps with two fingers) and make sure **Live Trip Simulator** is **OFF**. Otherwise the app ignores real GPS.
 3. Plan a trip and press **Start**.
 4. In the Secret menu, tap **Download GPX** (shown only while a trip is active), and send the file to the Mac (AirDrop, Drive, email…).
-5. In **Route**, press **Load GPX** and pick the file. Make sure **Follow GPX timestamps** is **ON** and **Time scale** is `1`, then press **Start Route**.
-6. Use the **Trip test** controls to hold at a stop, go 100 m off course, or change walking pace.
-7. When you're done, end the trip in the app, then press **Stop Route** or **Stop Simulating** to get the real GPS back.
+5. Drop the file on the spoofer's **Trip** tab. Keep **Follow GPX timestamps** on and **Speed** at `1×`. Turn on **Start walking now** if you don't want to wait for the leave-by time. Press **Start trip**.
+6. Use the test tools below. The table shows which MARTA rule each one exercises.
+7. When you're done, end the trip in the app, then press **Stop trip** and **Stop Simulating** to get the real GPS back.
 
-Load the GPX soon after downloading it. Its times are the real timetable, so playback joins at the current time and skips points already in the past. If the whole trip is already over, nothing plays: start a new trip and download a fresh GPX. If the phone doesn't move at first, the first bus or train probably hasn't left yet.
+Load the GPX soon after downloading it. Its times are the real timetable, so playback joins at the current time and skips points already in the past. If the whole trip is already over, the summary says so and Start is disabled: start a new trip and download a fresh GPX.
+
+| To test | Do this | MARTA rule |
+|---|---|---|
+| No off-course notice inside the threshold | Off course **450 m**, Jump | Off course needs **> 500 m** from the current or a later leg |
+| Off-course notice | Off course **600 m**, Jump | Notice after **30 s** past 500 m |
+| Notice timing follows the crossing | Off course **600 m**, **Drift** over 60 s | The 30 s starts when the fix crosses 500 m |
+| Back on course | **Back on course** (or Drift back) | Clears after **10 s** within 500 m |
+| Progress dot stops but no notice | Off course **100–450 m** | Leg match radius is **50 m** |
+| Missed departure | **Hold** at the stop past departure | Within **150 m** of the stop and **> 60 s** after departure |
+| “Can’t make it” switch | **Pace 0.5×** (or lower) on the walk to the stop | Projected arrival > departure + 60 s for **30 s** |
+| GPS lost | GPS signal **Frozen** (or **Lost signal** on Android) | No usable fix for **20 s**; fixes worse than **100 m** don’t count |
+| No false off-course from noisy GPS | **Jitter ±40 m** | Distance check uses the raw fix |
+| Arrival prompt and auto-end | Let the trip finish; it holds at the destination | Prompt within **50 m**; auto-end within **30 m** for **5 min** |
+
+**Copy log** in the Activity log gives a timestamped list of everything you did, ready to paste into a ticket.
 
 ## Build from source
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt pyinstaller
-.venv/bin/python -m unittest discover -s tests          # run the tests
+.venv/bin/python -m unittest discover -s tests -t .     # run the tests
 scripts/build-helper.sh                                  # Android helper APK → android/helper.apk
 scripts/build-app.sh                                     # produces dist/Location Spoofer.app (+ .zip)
 ```
@@ -181,8 +225,8 @@ scripts/build-app.sh                                     # produces dist/Locatio
 Signing and notarizing a release (`scripts/notarize.sh`) needs a Developer ID certificate and an App Store Connect API key; it's optional for internal use.
 
 ```
-backend/    FastAPI server, device discovery, iOS and Android drivers, geometry, spoof session
-frontend/ index.html · app.css · app.js · spring.js  (no build step)
+backend/    FastAPI server, device discovery, iOS / Android / demo drivers, geometry, spoof session
+frontend/ index.html · app.css · spring.js · core.js · map.js · device.js · place.js · trip.js · tools.js · info.js · tour.js · app.js  (no build step)
 android/  helper app that injects mock fixes, plus the committed debug APK
 packaging/ app icon
 docs/     research notes, design rules
@@ -191,6 +235,25 @@ tests/    unit tests
 ```
 
 Environment: `LS_HOST` (default `127.0.0.1`), `LS_PORT` (default `8420`), `LS_LOG` (default `INFO`), `LS_NO_BROWSER=1` (don't open the browser on start).
+
+**Working on the UI without a phone:** use **Practice with a demo phone** in the device popover, or start with `LS_DEMO=1 ./scripts/run.sh` to list the **Demo phone** from the start. It accepts everything and sends nothing. Add `LS_DEMO_PLATFORM=android` to try the Android-only controls. Use another `LS_PORT` to run it next to a real session.
+
+## Changelog
+
+**2.0.0**
+- New layout: device details in the top-bar pill; **Place** and **Trip** tabs; a live trip panel with test tools underneath
+- Trip summary before you start: legs, distance, duration and leave-by time; drag and drop GPX
+- **Start walking now** for trips that begin with a walk
+- Off course at any distance, left or right, jump or drift; works on a static location too
+- Any walking pace from 0.25× to 4×
+- GPS signal: Frozen, Lost signal (Android), Jitter
+- Activity log with copy
+- (i) explanations on every tool, and a filterable MARTA live-trip rules sheet
+- Guided tour on first run (replay from **?**), **Test scenarios** with one-click Set up, and **Practice mode** with a sample trip
+- The server tells browsers to re-check page files, so an upgrade shows up without a hard reload
+- Map shows legs, stops and the true position while off course
+- Fix: the off-course hint said 50 m; MARTA uses 500 m
+- Android helper 2: accepts an accuracy per fix, plus `FREEZE` / `RESUME` (installed automatically on Connect)
 
 ## License
 
