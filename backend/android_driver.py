@@ -121,8 +121,32 @@ class AndroidDriver:
             code="android",
         )
 
-    async def set(self, lat: float, lon: float) -> None:
-        await self._command(f"SET {lat} {lon}")
+    async def set(self, lat: float, lon: float, accuracy: Optional[float] = None) -> None:
+        if accuracy is None:
+            await self._command(f"SET {lat} {lon}")
+            return
+        try:
+            await self._command(f"SET {lat} {lon} {accuracy:g}")
+        except SpoofError as exc:
+            if "expected SET" in exc.message:
+                raise _helper_outdated() from exc
+            raise
+
+    async def freeze(self) -> None:
+        """Stop the helper re-sending the last fix, so the phone gets no updates at all."""
+        try:
+            await self._command("FREEZE")
+        except SpoofError as exc:
+            if "unknown command" in exc.message:
+                raise _helper_outdated() from exc
+            raise
+
+    async def resume(self) -> None:
+        try:
+            await self._command("RESUME")
+        except SpoofError as exc:
+            if "unknown command" not in exc.message:
+                raise
 
     async def clear(self) -> None:
         # CLEAR drops the test providers and leaves the socket open, so the next SET still works.
@@ -199,6 +223,14 @@ def _accept_reply(text: str) -> str:
             )
         raise SpoofError(reason, code="android")
     raise SpoofError(text or "Unexpected helper reply", code="android")
+
+
+def _helper_outdated() -> SpoofError:
+    return SpoofError(
+        "The helper on the phone is out of date",
+        ["Press Disconnect, then Connect: that installs the current helper."],
+        code="android_helper",
+    )
 
 
 def _adb_missing() -> SpoofError:

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 PACKAGE = "com.locationspoofer.helper"
-HELPER_VERSION_CODE = 1
+HELPER_VERSION_CODE = 2
 DEVICE_PORT = 17321
 SERVICE = "com.locationspoofer.helper/.SimulateService"
 APK_PATH = Path(__file__).resolve().parent.parent / "android" / "helper.apk"

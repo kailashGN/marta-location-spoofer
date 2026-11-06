@@ -12,16 +12,15 @@
 <body>
 <div id="app" class="app">
 
-  <!-- Map — the content everything else floats over -->
   <div id="map" class="map" aria-label="Map"></div>
 
-  <!-- Top chrome: translucent bar with title + device status -->
+  <!-- Top bar: brand · search · device pill (opens the device popover) -->
   <header class="topbar material" role="banner">
     <div class="brand">
       <span class="brand-mark" aria-hidden="true"></span>
       <div class="brand-text">
         <h1 class="title">Location Spoofer</h1>
-        <p class="byline">by kailash-hubspire</p>
+        <p class="byline" id="version">v2</p>
       </div>
     </div>
 
@@ -31,141 +30,337 @@
       <ul id="search-results" class="search-results material-solid" role="listbox" hidden></ul>
     </div>
 
-    <div id="device-pill" class="device-pill" role="status" aria-live="polite">
+    <button id="btn-scenarios" class="rules-btn" type="button" data-info="scenarios" title="Step-by-step test recipes" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="m3.5 6 1.5 1.5L7.5 5M3.5 12l1.5 1.5L7.5 11M3.5 18l1.5 1.5L7.5 17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Test scenarios</span>
+    </button>
+
+    <button id="btn-rules" class="rules-btn" type="button" data-info="rules" title="MARTA live trip rules" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5v-15Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3M9 7.5h6M9 11h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span>MARTA rules</span>
+    </button>
+
+    <button id="btn-tour" class="help-btn" type="button" title="Take the tour" aria-label="Take the tour">?</button>
+
+    <button id="device-pill" class="device-pill" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="device-pop">
       <span class="dot dot-idle" id="device-dot"></span>
       <span id="device-label">Looking for a phone…</span>
-    </div>
+      <span class="pill-chevron" aria-hidden="true"></span>
+    </button>
   </header>
 
-  <!-- Primary sheet (bottom on phone, right rail on desktop) -->
+  <!-- Device popover -->
+  <div id="device-pop" class="popover material-solid" role="dialog" aria-label="Device" hidden>
+    <div class="pop-head">
+      <h2>Device</h2>
+      <button class="btn btn-quiet btn-sm" id="btn-refresh" type="button" title="Rescan for devices">Rescan</button>
+    </div>
+    <div id="device-body" class="device-body">
+      <p class="muted">Plug in an iPhone or an Android phone with a USB cable.</p>
+    </div>
+    <div class="practice" id="practice-box" hidden>
+      <p id="practice-text">No phone handy? Practise with a demo phone. Every tool works; nothing is sent anywhere.</p>
+      <button class="btn btn-secondary btn-sm" id="btn-practice" type="button">Practice with a demo phone</button>
+    </div>
+    <div class="row gap" id="device-actions">
+      <button class="btn btn-secondary" id="btn-prepare" type="button" hidden>Prepare</button>
+      <button class="btn btn-primary" id="btn-connect" type="button" disabled>Connect</button>
+    </div>
+    <div class="pop-foot">
+      <span id="strategy-note" class="muted"></span>
+      <button class="btn btn-quiet btn-sm btn-danger" id="btn-quit" type="button" title="Stop simulating and quit Location Spoofer">Quit</button>
+    </div>
+  </div>
+
+  <!-- Sheet: bottom on phones, right rail on desktop -->
   <section id="sheet" class="sheet material" aria-label="Controls">
     <div class="grabber" id="grabber" aria-hidden="true"><span></span></div>
 
-    <!-- Device card -->
-    <div class="card" id="device-card">
-      <div class="card-head">
-        <h2>Device</h2>
-        <button class="btn btn-quiet btn-sm" id="btn-refresh" type="button" title="Rescan for devices">Rescan</button>
+    <div class="seg tabs" id="tabs" role="tablist" aria-label="Mode">
+      <button class="seg-item" role="tab" id="tab-place" aria-controls="panel-place" aria-selected="true" type="button">Place</button>
+      <button class="seg-item" role="tab" id="tab-trip" aria-controls="panel-trip" aria-selected="false" type="button">Trip <span class="tab-dot" id="trip-dot" hidden></span></button>
+      <span class="seg-thumb" aria-hidden="true"></span>
+    </div>
+
+    <!-- ============================== PLACE ============================== -->
+    <div id="panel-place" class="panel" role="tabpanel" aria-labelledby="tab-place">
+      <div class="card">
+        <div class="card-head">
+          <h2>Location <button class="info-btn" type="button" data-info="place" aria-label="About Location">i</button></h2>
+          <span class="chip" id="sim-chip" hidden>Simulating</span>
+        </div>
+        <div class="coords">
+          <label class="field">
+            <span class="field-label">Latitude</span>
+            <input id="lat" class="field-input" inputmode="decimal" placeholder="33.7537" aria-describedby="coord-error">
+          </label>
+          <label class="field">
+            <span class="field-label">Longitude</span>
+            <input id="lon" class="field-input" inputmode="decimal" placeholder="-84.3915" aria-describedby="coord-error">
+          </label>
+        </div>
+        <p id="coord-error" class="inline-error" role="alert" hidden></p>
+        <p class="hint" id="place-hint">Click the map or search to place the pin.</p>
+        <div class="row gap">
+          <button class="btn btn-secondary" id="btn-clear" type="button" disabled title="Return the phone to its real GPS">Stop Simulating</button>
+          <button class="btn btn-primary" id="btn-set" type="button" disabled>Set Location</button>
+        </div>
       </div>
-      <div id="device-body" class="device-body">
-        <p class="muted">Plug in an iPhone or an Android phone with a USB cable.</p>
-      </div>
-      <div class="row gap" id="device-actions">
-        <button class="btn btn-secondary" id="btn-prepare" type="button" hidden>Prepare</button>
-        <button class="btn btn-primary" id="btn-connect" type="button" disabled>Connect</button>
+
+      <div id="tools-slot-place"></div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Favourites</h2>
+          <button class="btn btn-quiet btn-sm" id="btn-fav-add" type="button" disabled>Save Pin</button>
+        </div>
+        <ul id="fav-list" class="list" aria-label="Favourite places"></ul>
       </div>
     </div>
 
-    <!-- Location card -->
-    <div class="card" id="location-card">
-      <div class="card-head">
-        <h2>Location</h2>
-        <span class="chip" id="sim-chip" hidden>Simulating</span>
-      </div>
-      <div class="coords">
-        <label class="field">
-          <span class="field-label">Latitude</span>
-          <input id="lat" class="field-input" inputmode="decimal" placeholder="37.3349" aria-describedby="coord-error">
+    <!-- ============================== TRIP =============================== -->
+    <div id="panel-trip" class="panel" role="tabpanel" aria-labelledby="tab-trip" hidden>
+
+      <!-- Setup: before a trip runs -->
+      <div id="trip-setup" class="stack">
+        <label class="dropzone" id="dropzone">
+          <input id="gpx-file" type="file" accept=".gpx,application/gpx+xml" hidden>
+          <svg class="dz-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <span class="dz-title">Load a GPX file</span>
+          <span class="dz-sub">or drag it here · exported from MARTA’s live trip</span>
         </label>
-        <label class="field">
-          <span class="field-label">Longitude</span>
-          <input id="lon" class="field-input" inputmode="decimal" placeholder="-122.0090" aria-describedby="coord-error">
-        </label>
+        <button class="btn btn-secondary self-stretch" id="btn-sample" type="button" hidden>Load the practice trip</button>
+        <button class="btn btn-quiet btn-sm self-center" id="btn-route-mode" type="button" aria-pressed="false">Draw a route on the map instead</button>
+
+        <div class="card" id="trip-summary" hidden>
+          <div class="card-head">
+            <div class="summary-title">
+              <span id="sum-name">Trip</span>
+              <span class="small" id="sum-meta"></span>
+            </div>
+            <button class="icon-btn" id="btn-route-clear" type="button" title="Clear route" aria-label="Clear route"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+          </div>
+          <div class="leg-chips" id="sum-legs"></div>
+          <p class="small" id="sum-start"></p>
+
+          <div class="options">
+            <label class="toggle" id="opt-times-wrap">
+              <input id="route-gpx-times" type="checkbox" checked>
+              <span class="toggle-track"><span class="toggle-knob"></span></span>
+              <span>Follow GPX timestamps</span>
+              <button class="info-btn" type="button" data-info="timestamps" aria-label="About Follow GPX timestamps">i</button>
+            </label>
+            <label class="toggle" id="opt-walk-wrap" hidden>
+              <input id="route-walk-ahead" type="checkbox">
+              <span class="toggle-track"><span class="toggle-knob"></span></span>
+              <span>Start walking now</span>
+              <button class="info-btn" type="button" data-info="walkahead" aria-label="About Start walking now">i</button>
+            </label>
+
+            <div class="opt-row" id="opt-scale-wrap">
+              <span class="opt-label">Speed <button class="info-btn" type="button" data-info="speed" aria-label="About Speed">i</button></span>
+              <div class="seg seg-sm" id="scale-seg" role="radiogroup" aria-label="Playback speed">
+                <button class="seg-item" data-scale="1" role="radio" aria-checked="true" type="button">1×</button>
+                <button class="seg-item" data-scale="2" role="radio" aria-checked="false" type="button">2×</button>
+                <button class="seg-item" data-scale="5" role="radio" aria-checked="false" type="button">5×</button>
+                <button class="seg-item" data-scale="10" role="radio" aria-checked="false" type="button">10×</button>
+                <span class="seg-thumb" aria-hidden="true"></span>
+              </div>
+            </div>
+            <div class="opt-row" id="opt-mode-wrap" hidden>
+              <span class="opt-label">Move as <button class="info-btn" type="button" data-info="moveas" aria-label="About Move as">i</button></span>
+              <div class="seg seg-sm" id="speed-seg" role="radiogroup" aria-label="Movement speed">
+                <button class="seg-item" data-speed="1.4" role="radio" aria-checked="true" type="button">Walk</button>
+                <button class="seg-item" data-speed="4.5" role="radio" aria-checked="false" type="button">Run</button>
+                <button class="seg-item" data-speed="7" role="radio" aria-checked="false" type="button">Bike</button>
+                <button class="seg-item" data-speed="15" role="radio" aria-checked="false" type="button">Drive</button>
+                <span class="seg-thumb" aria-hidden="true"></span>
+              </div>
+            </div>
+
+            <details class="more">
+              <summary>More options</summary>
+              <div class="more-body">
+                <label class="opt-row" id="opt-custom-wrap">
+                  <span class="opt-label">Custom speed</span>
+                  <span class="input-unit"><input id="route-time-scale" type="number" min="0.1" max="500" step="0.1" value="1" class="field-input input-num" aria-label="Custom time scale"><span>×</span></span>
+                </label>
+                <label class="toggle">
+                  <input id="route-loop" type="checkbox"><span class="toggle-track"><span class="toggle-knob"></span></span>
+                  <span>Loop when finished</span>
+                </label>
+              </div>
+            </details>
+          </div>
+        </div>
+
+        <div class="card drawing" id="trip-drawing" hidden>
+          <p class="small"><b id="draw-count">0 points</b> · click the map to add waypoints</p>
+          <div class="row gap">
+            <button class="btn btn-secondary btn-sm" id="btn-draw-undo" type="button">Undo</button>
+            <button class="btn btn-primary btn-sm" id="btn-draw-done" type="button">Done</button>
+          </div>
+        </div>
+
+        <button class="btn btn-primary btn-lg" id="btn-route-play" type="button" disabled>Start trip</button>
       </div>
-      <p id="coord-error" class="inline-error" role="alert" hidden></p>
-      <p class="hint">Click or tap the map to place the pin. Drag the pin to fine-tune.</p>
-      <div class="row gap">
-        <button class="btn btn-secondary" id="btn-clear" type="button" disabled>Stop Simulating</button>
-        <button class="btn btn-primary" id="btn-set" type="button" disabled>Set Location</button>
+
+      <!-- Live: while a trip runs -->
+      <div id="trip-live" class="stack" hidden>
+        <div class="card live-card">
+          <div class="live-head">
+            <span class="leg-icon" id="live-icon" aria-hidden="true"></span>
+            <div class="live-text">
+              <div class="live-title" id="live-title">Walking</div>
+              <div class="small" id="live-sub"></div>
+            </div>
+            <button class="info-btn" type="button" data-info="live" aria-label="About the live trip panel, Hold and Stop">i</button>
+          </div>
+          <div class="live-chips" id="live-chips"></div>
+          <div class="progress-bar"><span id="route-bar"></span></div>
+          <div class="row between small">
+            <span id="route-text">0 m</span>
+            <span id="route-eta"></span>
+          </div>
+          <div class="row gap">
+            <button class="btn btn-secondary" id="btn-route-pause" type="button" title="Hold position (Space)">Hold</button>
+            <button class="btn btn-secondary btn-stop" id="btn-route-stop" type="button">Stop trip</button>
+          </div>
+        </div>
+        <div id="tools-slot-trip"></div>
       </div>
     </div>
 
-    <!-- Favourites -->
-    <div class="card" id="fav-card">
-      <div class="card-head">
-        <h2>Favourites</h2>
-        <button class="btn btn-quiet btn-sm" id="btn-fav-add" type="button" disabled>Save Current</button>
-      </div>
-      <ul id="fav-list" class="list" aria-label="Favourite places"></ul>
+    <!-- ============================ TEST TOOLS ============================ -->
+    <!-- One instance, moved into whichever panel is showing a live location. -->
+    <div class="tools card" id="tools" hidden>
+      <details class="tool" id="tool-offset" name="tools">
+        <summary>
+          <span class="tool-icon ti-offset" aria-hidden="true"></span>
+          <span class="tool-name">Off course <button class="info-btn" type="button" data-info="offset" aria-label="About Off course">i</button></span>
+          <span class="tool-value" id="tv-offset">On course</span>
+          <span class="chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="tool-body">
+          <div class="opt-row">
+            <span class="opt-label">Distance</span>
+            <span class="input-unit"><input id="off-m" type="number" min="0" max="5000" step="10" value="600" class="field-input input-num" aria-label="Distance off course in metres"><span>m</span></span>
+          </div>
+          <div class="presets" id="off-presets" role="group" aria-label="Distance presets">
+            <button type="button" class="preset" data-m="100">100</button>
+            <button type="button" class="preset" data-m="300">300</button>
+            <button type="button" class="preset" data-m="450">450</button>
+            <button type="button" class="preset" data-m="500">500</button>
+            <button type="button" class="preset" data-m="600">600</button>
+            <button type="button" class="preset" data-m="1000">1000</button>
+          </div>
+          <div class="opt-row">
+            <span class="opt-label">Side</span>
+            <div class="seg seg-sm" id="off-side" role="radiogroup" aria-label="Side">
+              <button class="seg-item" data-v="left" role="radio" aria-checked="false" type="button">Left</button>
+              <button class="seg-item" data-v="right" role="radio" aria-checked="true" type="button">Right</button>
+              <span class="seg-thumb" aria-hidden="true"></span>
+            </div>
+          </div>
+          <div class="opt-row">
+            <span class="opt-label">Movement</span>
+            <div class="seg seg-sm" id="off-move" role="radiogroup" aria-label="Movement">
+              <button class="seg-item" data-v="jump" role="radio" aria-checked="true" type="button">Jump</button>
+              <button class="seg-item" data-v="drift" role="radio" aria-checked="false" type="button">Drift</button>
+              <span class="seg-thumb" aria-hidden="true"></span>
+            </div>
+          </div>
+          <div class="opt-row" id="off-ramp-wrap" hidden>
+            <span class="opt-label">Drift over</span>
+            <span class="input-unit"><input id="off-ramp" type="number" min="1" max="600" step="5" value="60" class="field-input input-num" aria-label="Drift time in seconds"><span>s</span></span>
+          </div>
+          <p class="readout" id="off-readout">On course</p>
+          <div class="row gap">
+            <button class="btn btn-secondary" id="btn-off-back" type="button">Back on course</button>
+            <button class="btn btn-primary" id="btn-off-go" type="button" title="Go off course (O)">Go off course</button>
+          </div>
+          <p class="rule">MARTA: off course after &gt;500 m for 30 s · back after 10 s within 500 m. Under 50 m the dot keeps moving.</p>
+        </div>
+      </details>
+
+      <details class="tool" id="tool-pace" name="tools">
+        <summary>
+          <span class="tool-icon ti-pace" aria-hidden="true"></span>
+          <span class="tool-name">Pace <button class="info-btn" type="button" data-info="pace" aria-label="About Pace">i</button></span>
+          <span class="tool-value" id="tv-pace">1×</span>
+          <span class="chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="tool-body">
+          <div class="opt-row">
+            <input id="pace" class="range" type="range" min="0.25" max="4" step="0.05" value="1" list="pace-ticks" aria-label="Walking pace">
+            <output id="pace-out" class="range-out">1×</output>
+          </div>
+          <datalist id="pace-ticks"><option value="0.5"></option><option value="1"></option><option value="1.5"></option><option value="2"></option></datalist>
+          <div class="presets" id="pace-presets" role="group" aria-label="Pace presets">
+            <button type="button" class="preset" data-p="0.5">0.5×</button>
+            <button type="button" class="preset" data-p="1">1×</button>
+            <button type="button" class="preset" data-p="1.5">1.5×</button>
+            <button type="button" class="preset" data-p="2">2×</button>
+          </div>
+          <p class="rule" id="pace-rule">Walking legs only. A slow walk triggers MARTA’s “can’t make it” switch after 30 s.</p>
+        </div>
+      </details>
+
+      <details class="tool" id="tool-gps" name="tools">
+        <summary>
+          <span class="tool-icon ti-gps" aria-hidden="true"></span>
+          <span class="tool-name">GPS signal <button class="info-btn" type="button" data-info="gps" aria-label="About GPS signal">i</button></span>
+          <span class="tool-value" id="tv-gps">Normal</span>
+          <span class="chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="tool-body">
+          <div class="seg" id="gps-mode" role="radiogroup" aria-label="GPS signal">
+            <button class="seg-item" data-v="normal" role="radio" aria-checked="true" type="button">Normal</button>
+            <button class="seg-item" data-v="frozen" role="radio" aria-checked="false" type="button">Frozen</button>
+            <button class="seg-item" data-v="lost" role="radio" aria-checked="false" type="button">Lost signal</button>
+            <span class="seg-thumb" aria-hidden="true"></span>
+          </div>
+          <p class="small" id="gps-mode-hint">Frozen sends no updates. Lost signal sends fixes MARTA ignores (accuracy 150 m).</p>
+          <div class="opt-row">
+            <span class="opt-label">Jitter</span>
+            <input id="jitter" class="range" type="range" min="0" max="100" step="5" value="0" aria-label="GPS jitter in metres">
+            <output id="jitter-out" class="range-out">Off</output>
+          </div>
+          <p class="rule">MARTA: no usable fix for 20 s → GPS lost. Fixes worse than 100 m don’t count.</p>
+        </div>
+      </details>
+
+      <details class="tool" id="tool-log" name="tools">
+        <summary>
+          <span class="tool-icon ti-log" aria-hidden="true"></span>
+          <span class="tool-name">Activity log <button class="info-btn" type="button" data-info="log" aria-label="About Activity log">i</button></span>
+          <span class="tool-value" id="tv-log">0</span>
+          <span class="chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="tool-body">
+          <ol class="log" id="log-list" reversed></ol>
+          <div class="row gap">
+            <button class="btn btn-secondary btn-sm" id="btn-log-clear" type="button">Clear</button>
+            <button class="btn btn-secondary btn-sm" id="btn-log-copy" type="button">Copy log</button>
+          </div>
+        </div>
+      </details>
     </div>
-
-    <!-- Route (advanced, collapsed) -->
-    <details class="card details" id="route-card">
-      <summary class="card-head as-summary">
-        <h2>Route</h2>
-        <span class="chevron" aria-hidden="true"></span>
-      </summary>
-      <p class="hint">Move along a path. Click the map with route mode on to add waypoints, or load a GPX file.</p>
-      <div class="row gap wrap">
-        <button class="btn btn-secondary btn-sm" id="btn-route-mode" type="button" aria-pressed="false">Draw Waypoints</button>
-        <label class="btn btn-secondary btn-sm file-btn">Load GPX<input id="gpx-file" type="file" accept=".gpx,application/gpx+xml" hidden></label>
-        <button class="btn btn-quiet btn-sm" id="btn-route-clear" type="button">Clear Path</button>
-      </div>
-      <label class="toggle" id="route-gpx-times-wrap" hidden>
-        <input id="route-gpx-times" type="checkbox" checked>
-        <span class="toggle-track"><span class="toggle-knob"></span></span>
-        <span>Follow GPX timestamps</span>
-      </label>
-      <p class="small" id="route-gpx-times-hint" hidden>The pin starts at the current time and skips points already in the past.</p>
-      <div class="row gap wrap align-center" id="route-time-scale-wrap" hidden>
-        <label class="small" for="route-time-scale">Time scale</label>
-        <input id="route-time-scale" type="number" min="0.1" max="500" step="0.1" value="1" class="input-num" aria-describedby="route-time-scale-hint">
-        <span id="route-time-scale-hint" class="small muted">1 = real time · 5 = 5× faster</span>
-      </div>
-      <div class="seg" id="route-speed-seg" role="radiogroup" aria-label="Speed" hidden>
-        <button class="seg-item" data-speed="1.4" role="radio" aria-checked="true" type="button">Walk</button>
-        <button class="seg-item" data-speed="4.5" role="radio" aria-checked="false" type="button">Run</button>
-        <button class="seg-item" data-speed="7" role="radio" aria-checked="false" type="button">Bike</button>
-        <button class="seg-item" data-speed="15" role="radio" aria-checked="false" type="button">Drive</button>
-        <span class="seg-thumb" aria-hidden="true"></span>
-      </div>
-      <label class="toggle">
-        <input id="route-loop" type="checkbox"><span class="toggle-track"><span class="toggle-knob"></span></span>
-        <span>Loop</span>
-      </label>
-      <div id="route-progress" class="progress" hidden>
-        <div class="progress-bar"><span id="route-bar"></span></div>
-        <div class="row between small">
-          <span id="route-text">0 m</span>
-          <span id="route-eta"></span>
-        </div>
-      </div>
-      <div class="row gap">
-        <button class="btn btn-secondary" id="btn-route-stop" type="button" hidden>Stop Route</button>
-        <button class="btn btn-primary" id="btn-route-play" type="button" disabled>Start Route</button>
-      </div>
-      <div id="trip-test" hidden>
-        <p class="small">Trip test</p>
-        <div class="row gap wrap">
-          <button class="btn btn-secondary" id="btn-route-pause" type="button">Hold position</button>
-        </div>
-        <p class="small">Stay here while the trip clock runs. Hold at the stop to miss a departure.</p>
-        <div class="row gap wrap">
-          <button class="btn btn-secondary" id="btn-offset-left" type="button" aria-pressed="false">100 m left</button>
-          <button class="btn btn-secondary" id="btn-offset-right" type="button" aria-pressed="false">100 m right</button>
-          <button class="btn btn-secondary" id="btn-offset-clear" type="button">On course</button>
-        </div>
-        <p class="small">MARTA treats you as off course after you stay more than 50 m away for 30 seconds.</p>
-        <div class="row gap wrap" id="trip-pace" role="group" aria-label="Pace">
-          <button class="btn btn-secondary" id="btn-pace-slow" type="button" aria-pressed="false">Slower</button>
-          <button class="btn btn-secondary" id="btn-pace-normal" type="button" aria-pressed="true">Normal</button>
-          <button class="btn btn-secondary" id="btn-pace-fast" type="button" aria-pressed="false">Faster</button>
-        </div>
-        <p class="small" id="trip-pace-hint">Slower, normal, or faster on this walk or drive.</p>
-      </div>
-    </details>
-
-    <footer class="foot">
-      <span>Location Spoofer <span id="version"></span> · kailash-hubspire</span>
-      <span id="strategy-note" class="muted"></span>
-      <button class="btn btn-quiet btn-sm btn-danger" id="btn-quit" type="button" title="Stop simulating and quit Location Spoofer">Quit</button>
-    </footer>
   </section>
 
-  <!-- Toasts: status / completion / warning / error -->
   <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
 
-  <!-- Recovery sheet (only for blockers with steps) -->
+  <!-- Explanations: one dialog for every (i) button and for the MARTA rules list -->
+  <div id="info-scrim" class="scrim" hidden></div>
+  <div id="info" class="info-sheet material-solid" role="dialog" aria-modal="true" aria-labelledby="info-title" hidden>
+    <div class="info-head">
+      <span class="info-icon" id="info-icon" aria-hidden="true"></span>
+      <h3 id="info-title"></h3>
+      <button class="icon-btn" id="info-close" type="button" aria-label="Close"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+    </div>
+    <div class="info-body" id="info-body"></div>
+  </div>
+
   <div id="scrim" class="scrim" hidden></div>
   <div id="recover" class="recover material-solid" role="dialog" aria-modal="true" aria-labelledby="recover-title" hidden>
     <h3 id="recover-title"></h3>
@@ -179,6 +374,14 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin=""></script>
 <script src="spring.js"></script>
+<script src="core.js"></script>
+<script src="map.js"></script>
+<script src="device.js"></script>
+<script src="place.js"></script>
+<script src="trip.js"></script>
+<script src="tools.js"></script>
+<script src="info.js"></script>
+<script src="tour.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

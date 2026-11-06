@@ -121,7 +121,9 @@ class IosDriver:
             code="tunnel",
         )
 
-    async def set(self, lat: float, lon: float) -> None:
+    async def set(self, lat: float, lon: float, accuracy: Optional[float] = None) -> None:
+        # iOS location simulation takes a position only; ``accuracy`` cannot be faked here.
+        del accuracy
         assert self._sim is not None
         try:
             await self._sim.set(lat, lon)

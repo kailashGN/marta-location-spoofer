@@ -38,6 +38,8 @@ class SimulateService : Service() {
     private val activeProviders = LinkedHashSet<String>()
     private var lastLat: Double? = null
     private var lastLon: Double? = null
+    private var lastAccuracy: Float = DEFAULT_ACCURACY
+    @Volatile private var frozen = false
     private var server: ServerSocket? = null
     @Volatile private var client: Socket? = null
     private var acceptThread: Thread? = null
@@ -172,12 +174,12 @@ class SimulateService : Service() {
     }
 
     /** @return an error string, or null after the fix is written to every active provider. */
-    private fun publish(lat: Double, lon: Double): String? {
+    private fun publish(lat: Double, lon: Double, acc: Float): String? {
         val error = ensureProviders()
         if (error != null) return error
         for (name in activeProviders) {
             try {
-                locationManager.setTestProviderLocation(name, fix(name, lat, lon))
+                locationManager.setTestProviderLocation(name, fix(name, lat, lon, acc))
             } catch (e: SecurityException) {
                 Log.w(TAG, "set $name denied", e)
                 return MOCK_DENIED
@@ -189,11 +191,11 @@ class SimulateService : Service() {
         return null
     }
 
-    private fun fix(provider: String, lat: Double, lon: Double): Location {
+    private fun fix(provider: String, lat: Double, lon: Double, acc: Float): Location {
         return Location(provider).apply {
             latitude = lat
             longitude = lon
-            accuracy = 5f
+            accuracy = acc
             time = System.currentTimeMillis()
             elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
             altitude = 0.0
@@ -211,10 +213,11 @@ class SimulateService : Service() {
     }
 
     private fun republishLast() {
+        if (frozen) return
         synchronized(lock) {
             val lat = lastLat ?: return
             val lon = lastLon ?: return
-            val error = publish(lat, lon)
+            val error = publish(lat, lon, lastAccuracy)
             if (error != null) Log.w(TAG, "republish failed: $error")
         }
     }
@@ -224,25 +227,37 @@ class SimulateService : Service() {
         if (parts.isEmpty()) return "ERR empty command"
         return when (parts[0].uppercase()) {
             "PING" -> "OK"
+            "FREEZE" -> {
+                frozen = true
+                "OK"
+            }
+            "RESUME" -> {
+                frozen = false
+                "OK"
+            }
             "CLEAR" -> synchronized(lock) {
+                frozen = false
                 lastLat = null
                 lastLon = null
                 removeProviders()
                 "OK"
             }
             "SET" -> {
-                if (parts.size != 3) return "ERR expected SET <lat> <lon>"
+                if (parts.size != 3 && parts.size != 4) return "ERR expected SET <lat> <lon> [accuracy]"
                 val lat = parts[1].toDoubleOrNull()
                 val lon = parts[2].toDoubleOrNull()
                 if (lat == null || lon == null) return "ERR lat and lon must be numbers"
                 if (lat !in -90.0..90.0 || lon !in -180.0..180.0) return "ERR lat or lon out of range"
+                val acc = if (parts.size == 4) parts[3].toFloatOrNull() else DEFAULT_ACCURACY
+                if (acc == null || acc <= 0f || acc > 10000f) return "ERR accuracy must be 0-10000 m"
                 synchronized(lock) {
-                    val error = publish(lat, lon)
+                    val error = publish(lat, lon, acc)
                     if (error != null) {
                         "ERR $error"
                     } else {
                         lastLat = lat
                         lastLon = lon
+                        lastAccuracy = acc
                         "OK"
                     }
                 }
@@ -314,6 +329,7 @@ class SimulateService : Service() {
         private const val CHANNEL_ID = "simulate"
         private const val NOTIFICATION_ID = 1
         private const val PORT = 17321
+        private const val DEFAULT_ACCURACY = 5f
         private const val MOCK_DENIED =
             "mock location is not granted. Select Location Spoofer Helper in Developer options."
     }
