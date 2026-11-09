@@ -165,8 +165,9 @@
     });
   }
 
+  /** Resolves true once the demo phone is connected (and the practice trip loaded), false on failure. */
   async function startPractice() {
-    await LS.busy($('btn-practice'), async () => {
+    return LS.busy($('btn-practice'), async () => {
       try {
         if (LS.connected()) LS.applyStatus(await api.post('/api/disconnect'));
         await api.post('/api/demo', { enabled: true });
@@ -176,11 +177,12 @@
         close();
         LS.toast('done', 'Practice mode · nothing is sent to a phone');
         if (!LS.activeRoute()) await LS.trip.loadSample();
-      } catch (e) { LS.handleError(e); }
+        return true;
+      } catch (e) { LS.handleError(e); return false; }
     });
   }
   async function endPractice() {
-    await LS.busy($('btn-practice'), async () => {
+    return LS.busy($('btn-practice'), async () => {
       try {
         const r = await api.post('/api/demo', { enabled: false });
         LS.applyStatus(r.status);
@@ -191,8 +193,18 @@
         state.selected = null;
         await refreshDevices();
         LS.toast('status', 'Practice ended');
-      } catch (e) { LS.handleError(e); }
+        return true;
+      } catch (e) { LS.handleError(e); return false; }
     });
+  }
+  /** End practice and connect the real phone that was in use before it (the tour's last card). */
+  async function reconnect(udid) {
+    if (LS.practising() && !(await endPractice())) return false;
+    await refreshDevices();
+    if (!state.devices.some((d) => d.udid === udid)) { LS.toast('warn', 'That phone is no longer plugged in'); show(); return false; }
+    state.selected = udid;
+    await doConnect();
+    return LS.connected();
   }
   $('btn-practice').addEventListener('click', () => (LS.practising() ? endPractice() : startPractice()));
   $('btn-connect').addEventListener('click', doConnect);
@@ -203,5 +215,5 @@
     document.body.innerHTML = '<div style="display:grid;place-items:center;height:100%;font:15px -apple-system,system-ui"><div style="text-align:center"><h2 style="margin:0 0 6px">Location Spoofer has quit</h2><p style="margin:0;color:#888">Real GPS restored. You can close this tab.</p></div></div>';
   });
 
-  LS.device = { refresh: refreshDevices, show, close, isOpen: () => open, startPractice };
+  LS.device = { refresh: refreshDevices, show, close, isOpen: () => open, startPractice, endPractice, reconnect };
 })();

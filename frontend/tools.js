@@ -27,7 +27,8 @@
   if (openTool && $(openTool)) $(openTool).open = true;
 
   // ------------------------------------------------------------------ off course
-  const prefs = LS.store.get('offset', { m: 600, side: 'right', move: 'jump', ramp: 60 });
+  const OFF = LS.MARTA.OFF_COURSE_M;
+  const prefs = LS.store.get('offset', { m: 1000, side: 'right', move: 'jump', ramp: 60 });
   $('off-m').value = prefs.m;
   $('off-ramp').value = prefs.ramp;
   const sideSeg = LS.seg($('off-side'), { onChange: (b) => { prefs.side = b.dataset.v; save(); } });
@@ -35,7 +36,7 @@
   sideSeg.selectBy('v', prefs.side, false);
   moveSeg.selectBy('v', prefs.move, false);
   function save() {
-    prefs.m = clamp(parseFloat($('off-m').value), 0, 5000, 600);
+    prefs.m = clamp(parseFloat($('off-m').value), 0, 5000, 1000);
     prefs.ramp = clamp(parseFloat($('off-ramp').value), 1, 600, 60);
     LS.store.set('offset', prefs);
     renderPresets();
@@ -88,19 +89,19 @@
     let cls = '';
     if (o.ramping) {
       text = `Drifting · now ${Math.round(o.current_m)} m from the route · ${Math.ceil(o.ramp_left_s)} s to ${Math.round(o.target_m)} m`;
-      cls = o.current_m > 500 ? 'bad' : 'warn';
+      cls = o.current_m > OFF ? 'bad' : 'warn';
     } else if (o.current_m > 0) {
-      text = o.current_m > 500
-        ? `${Math.round(o.current_m)} m ${o.side} · past 500 m, MARTA flags it after 30 s`
-        : `${Math.round(o.current_m)} m ${o.side} · inside 500 m, no off-course notice`;
-      cls = o.current_m > 500 ? 'bad' : 'warn';
+      text = o.current_m > OFF
+        ? `${Math.round(o.current_m)} m ${o.side} · past ${OFF} m, MARTA shows the off-course card after 30 s`
+        : `${Math.round(o.current_m)} m ${o.side} · inside ${OFF} m, no off-course card`;
+      cls = o.current_m > OFF ? 'bad' : 'warn';
     } else if (away && away > 3) {
       text = `On course · jitter puts the fix ${away} m away`;
     }
     $('off-readout').textContent = text;
     $('off-readout').className = `readout ${cls}`;
     $('tv-offset').textContent = o.ramping ? `Drifting ${Math.round(o.current_m)} m` : o.current_m > 0 ? `${Math.round(o.current_m)} m ${o.side}` : 'On course';
-    $('tv-offset').className = `tool-value ${o.current_m > 500 ? 'bad' : o.current_m > 0 ? 'warn' : ''}`;
+    $('tv-offset').className = `tool-value ${o.current_m > OFF ? 'bad' : o.current_m > 0 ? 'warn' : ''}`;
   }
 
   // ------------------------------------------------------------------ pace
