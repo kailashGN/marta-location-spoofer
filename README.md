@@ -182,6 +182,8 @@ Two loops share the work: the route runner moves the on-course point along the r
 
 ## Testing MARTA live trips
 
+📖 **Step-by-step guide with screenshots:** [docs/user-guide](docs/user-guide/README.md)
+
 New here? Press **?** for the tour. It starts a practice trip on a demo phone and walks you through it. Then open **Test scenarios** for step-by-step checks.
 
 To test a real live trip on a phone without travelling, download the trip's GPX from the MARTA app and play it back here. The MARTA app never talks to Location Spoofer: you move the file across by hand.
