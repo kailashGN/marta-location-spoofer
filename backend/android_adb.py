@@ -14,6 +14,8 @@ HELPER_VERSION_CODE = 2
 DEVICE_PORT = 17321
 SERVICE = "com.locationspoofer.helper/.SimulateService"
 APK_PATH = Path(__file__).resolve().parent.parent / "android" / "helper.apk"
+BUNDLED_ADB = Path(__file__).resolve().parent.parent / ".tools" / "platform-tools" / "adb"
+"""Where ``scripts/run.sh`` puts Google's platform-tools when the Mac has no adb."""
 
 _MOCK_DENIED = "mock location is not granted"
 
@@ -25,6 +27,7 @@ def default_adb_candidates() -> list[Path]:
         if root:
             candidates.append(Path(root) / "platform-tools" / "adb")
     candidates.append(Path.home() / "Library/Android/sdk/platform-tools/adb")
+    candidates.append(BUNDLED_ADB)
     return candidates
 
 
@@ -32,7 +35,7 @@ def find_adb(
     which: Callable[[str], Optional[str]] = shutil.which,
     extra: Optional[list[Path]] = None,
 ) -> Optional[str]:
-    """PATH, then ANDROID_HOME, then the Android Studio SDK location on this Mac."""
+    """PATH, then ANDROID_HOME, then Android Studio's SDK, then the copy setup downloaded."""
     found = which("adb")
     if found:
         return found
