@@ -47,10 +47,10 @@
   - **Pace** – any walking pace from 0.25× to 4×; rides stay on the timetable
   - **GPS signal** – **Frozen** (no updates), **Lost signal** (fixes too inaccurate to use; Android only), and **Jitter** up to ±100 m
   - **Activity log** – every action and trip event with its time and leg; **Copy log** for bug reports
-- **Guided tour** – opens the first time; replay it from **?** in the top bar
+- **Guided tour** – opens the first time and runs a practice trip with you (start it, watch the rider, go off course), so every step shows the real control; replay it from **?** in the top bar
 - **Test scenarios** – step-by-step recipes with the expected result; **Set up** opens the right tool with the values filled in
 - **Practice mode** – a demo phone and a ready-made sample trip (State Capitol → Five Points → Midtown), so you can learn the tools without a phone. Start it from the device pill or the end of the tour
-- **Built-in help** – every tool and trip option has an **(i)** that explains how it works and which MARTA rule it hits. **MARTA rules** in the top bar lists every live-trip rule (off course, GPS, missed departure, boarding, arrival, auto-end, notifications) with its number and how to test it, with a filter
+- **Built-in help** – every tool and trip option has an **(i)** that explains how it works and which MARTA rule it hits. **MARTA rules** in the top bar lists every live-trip rule (off course, progress, GPS, missed departure, boarding, arrival, auto-end, reminders) in plain language: what the app does, what you see on the phone, and how to test it. Rules that need background have a **More detail** dropdown, and the sheet has a filter and section shortcuts
 - **Map** – walks dotted grey, rides solid blue, stops marked; while off course a ghost dot shows the true position
 - **Favourites** – one-click return to places you use often
 - **iPhone (iOS 14 – 26)** – legacy usbmux service or iOS 17+ developer tunnel, no `sudo`. Nothing permanent installed on the phone
@@ -68,9 +68,19 @@ cd marta-location-spoofer
 ./scripts/run.sh
 ```
 
+Or double-click **Start Location Spoofer.command** in Finder, which runs the same script in a Terminal window. QA testers should follow the [user guide](docs/user-guide/README.md).
+
 Run it from the repo root as shown (or `./run.sh` from inside `scripts/`). A bare `run.sh` won't work, because the shell doesn't look for commands in the current folder.
 
-The first run creates `.venv` and installs `requirements.txt` (needs Python 3 on the Mac), then opens the UI at `http://127.0.0.1:8420`.
+`run.sh` prints five numbered steps and stops on the first failure, naming the step. Output is also saved to `logs/setup.log`. Each step is skipped once done, so it doubles as the everyday launcher:
+
+1. Checks macOS is 13 or newer, and clears the download quarantine flag if the repo came from a ZIP.
+2. Gets Python 3.10+. It downloads [uv](https://github.com/astral-sh/uv) and uses it to install Python 3.11 into `.tools/`, with no admin rights and nothing outside the repo. Apple's `/usr/bin/python3` (3.9) is never used: playback creates asyncio primitives at import, which breaks on 3.9. If the download fails, it falls back to a Python 3.10+ already on PATH.
+3. Creates `.venv`.
+4. Installs `requirements.txt`, again whenever its checksum changes (stored in `.venv/.requirements.sha`).
+5. Finds `adb` (PATH, `ANDROID_HOME`, Android Studio's SDK, `.tools/platform-tools`), or downloads Google's platform-tools into `.tools/`. A failed download is only a warning, because iPhones don't need it.
+
+It then opens the UI at `http://127.0.0.1:8420`, or just opens the browser if Location Spoofer is already running. Overrides: `LS_PYTHON` (use this interpreter for `.venv`), `LS_UV_URL`, `LS_ADB_URL`.
 
 To get a double-clickable **Location Spoofer.app** instead, see [Build from source](#build-from-source). Local builds are not notarized, so on first launch right-click the app and choose **Open**.
 
@@ -79,7 +89,7 @@ To get a double-clickable **Location Spoofer.app** instead, see [Build from sour
 - macOS 13 Ventura or newer, Apple silicon or Intel
 - **iPhone or iPad** on iOS / iPadOS 14 – 26, **or** an **Android phone** on Android 8 or newer, connected with a USB cable (physical devices are what this project targets; emulators are not the primary path)
 - **iPhone:** Developer Mode enabled (Settings → Privacy & Security → Developer Mode)
-- **Android:** USB debugging on, and `adb` on the Mac (`brew install android-platform-tools`, or Android Studio’s SDK at `~/Library/Android/sdk/platform-tools`)
+- **Android:** Developer options and USB debugging on. `run.sh` downloads `adb` if the Mac doesn't have it.
 
 Xcode is **not** required.
 
@@ -182,7 +192,9 @@ Two loops share the work: the route runner moves the on-course point along the r
 
 ## Testing MARTA live trips
 
-New here? Press **?** for the tour, try **Practice with a demo phone** (device pill), then open **Test scenarios** for step-by-step checks.
+📖 **Step-by-step guide with screenshots:** [docs/user-guide](docs/user-guide/README.md)
+
+New here? Press **?** for the tour. It starts a practice trip on a demo phone and walks you through it. Then open **Test scenarios** for step-by-step checks.
 
 To test a real live trip on a phone without travelling, download the trip's GPX from the MARTA app and play it back here. The MARTA app never talks to Location Spoofer: you move the file across by hand.
 
@@ -198,14 +210,14 @@ Load the GPX soon after downloading it. Its times are the real timetable, so pla
 
 | To test | Do this | MARTA rule |
 |---|---|---|
-| No off-course notice inside the threshold | Off course **450 m**, Jump | Off course needs **> 500 m** from the current or a later leg |
-| Off-course notice | Off course **600 m**, Jump | Notice after **30 s** past 500 m |
-| Notice timing follows the crossing | Off course **600 m**, **Drift** over 60 s | The 30 s starts when the fix crosses 500 m |
-| Back on course | **Back on course** (or Drift back) | Clears after **10 s** within 500 m |
-| Progress dot stops but no notice | Off course **100–450 m** | Leg match radius is **50 m** |
+| No off-course card inside the threshold | Off course **700 m**, Jump | Off course needs **> 805 m** (½ mile) from the current or a later leg |
+| Off-course card | Off course **1000 m**, Jump | “It looks like you might have lost your way.” after **30 s** past 805 m |
+| Card timing follows the crossing | Off course **1000 m**, **Drift** over 60 s | The 30 s starts when the fix crosses 805 m (about 48 s in, so the card shows at about 78 s) |
+| Back on course | **Back on course** (or Drift back) | Clears after **10 s** within 805 m |
+| Progress stops but no card | Off course **100–700 m** | Progress radius is **50 m** |
 | Missed departure | **Hold** at the stop past departure | Within **150 m** of the stop and **> 60 s** after departure |
 | “Can’t make it” switch | **Pace 0.5×** (or lower) on the walk to the stop | Projected arrival > departure + 60 s for **30 s** |
-| GPS lost | GPS signal **Frozen** (or **Lost signal** on Android) | No usable fix for **20 s**; fixes worse than **100 m** don’t count |
+| GPS lost | GPS signal **Frozen** (or **Lost signal** on Android) | “No GPS signal” after **20 s** with no usable fix; fixes worse than **100 m** don’t count |
 | No false off-course from noisy GPS | **Jitter ±40 m** | Distance check uses the raw fix |
 | Arrival prompt and auto-end | Let the trip finish; it holds at the destination | Prompt within **50 m**; auto-end within **30 m** for **5 min** |
 
@@ -239,6 +251,12 @@ Environment: `LS_HOST` (default `127.0.0.1`), `LS_PORT` (default `8420`), `LS_LO
 **Working on the UI without a phone:** use **Practice with a demo phone** in the device popover, or start with `LS_DEMO=1 ./scripts/run.sh` to list the **Demo phone** from the start. It accepts everything and sends nothing. Add `LS_DEMO_PLATFORM=android` to try the Android-only controls. Use another `LS_PORT` to run it next to a real session.
 
 ## Changelog
+
+**2.0.1**
+- Guided tour starts a practice trip first (demo phone + sample trip), starts it with you and points at the real trip summary, live panel and test tools, with “Try it” steps you can do inside the spotlight
+- MARTA rules rewritten for QA testers: plain-language descriptions, what you see on the phone, **More detail** dropdowns, a “New to live trips?” primer, clearer section headers and section shortcuts
+- Fix: MARTA's off-course distance is now **805 m** (½ mile), not 500 m. Off course presets, readouts, scenarios and the default distance (1000 m) follow it
+- Fix: “No later departure” shows “Your trip may not be possible as planned.”, and the leave-by reminder is 3 min before the first leg starts
 
 **2.0.0**
 - New layout: device details in the top-bar pill; **Place** and **Trip** tabs; a live trip panel with test tools underneath

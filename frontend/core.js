@@ -6,6 +6,9 @@
   const LS = (window.LS = window.LS || {});
   const $ = (LS.$ = (id) => document.getElementById(id));
 
+  // MARTA's off-course distance (marta-mobile-app LIVE_TRIP_CONFIG.OFF_COURSE_METERS, half a mile).
+  LS.MARTA = { OFF_COURSE_M: 805 };
+
   // Theme: follows the system unless ?theme=light|dark was given (remembered per browser).
   (() => {
     const q = new URLSearchParams(location.search).get('theme');

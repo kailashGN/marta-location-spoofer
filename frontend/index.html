@@ -245,15 +245,15 @@
         <div class="tool-body">
           <div class="opt-row">
             <span class="opt-label">Distance</span>
-            <span class="input-unit"><input id="off-m" type="number" min="0" max="5000" step="10" value="600" class="field-input input-num" aria-label="Distance off course in metres"><span>m</span></span>
+            <span class="input-unit"><input id="off-m" type="number" min="0" max="5000" step="10" value="1000" class="field-input input-num" aria-label="Distance off course in metres"><span>m</span></span>
           </div>
           <div class="presets" id="off-presets" role="group" aria-label="Distance presets">
             <button type="button" class="preset" data-m="100">100</button>
             <button type="button" class="preset" data-m="300">300</button>
-            <button type="button" class="preset" data-m="450">450</button>
-            <button type="button" class="preset" data-m="500">500</button>
-            <button type="button" class="preset" data-m="600">600</button>
+            <button type="button" class="preset" data-m="700">700</button>
+            <button type="button" class="preset" data-m="805">805</button>
             <button type="button" class="preset" data-m="1000">1000</button>
+            <button type="button" class="preset" data-m="1500">1500</button>
           </div>
           <div class="opt-row">
             <span class="opt-label">Side</span>
@@ -280,7 +280,7 @@
             <button class="btn btn-secondary" id="btn-off-back" type="button">Back on course</button>
             <button class="btn btn-primary" id="btn-off-go" type="button" title="Go off course (O)">Go off course</button>
           </div>
-          <p class="rule">MARTA: off course after &gt;500 m for 30 s · back after 10 s within 500 m. Under 50 m the dot keeps moving.</p>
+          <p class="rule">MARTA: off course past 805 m (½ mile) for 30 s · back after 10 s within 805 m. Beyond 50 m, progress in the trip panel stops.</p>
         </div>
       </details>
 

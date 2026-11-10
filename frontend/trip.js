@@ -329,7 +329,7 @@
       const side = o.side ? ` ${o.side}` : '';
       chips.push(o.ramping
         ? `<span class="chip chip-warn">Drifting · ${Math.round(o.current_m)} → ${Math.round(o.target_m)} m${side}</span>`
-        : `<span class="chip ${o.current_m > 500 ? 'chip-bad' : 'chip-warn'}">Off course · ${Math.round(o.current_m)} m${side}</span>`);
+        : `<span class="chip ${o.current_m > LS.MARTA.OFF_COURSE_M ? 'chip-bad' : 'chip-warn'}">Off course · ${Math.round(o.current_m)} m${side}</span>`);
     }
     if (st.gps && st.gps.mode === 'frozen') chips.push('<span class="chip chip-bad">GPS frozen</span>');
     if (st.gps && st.gps.mode === 'lost') chips.push('<span class="chip chip-bad">Lost signal</span>');
@@ -374,5 +374,5 @@
   function clearSample() {
     if (R.gpx && R.gpx.sample) clearPlan();
   }
-  LS.trip = { addWaypoint, redrawPlan, togglePause, show, loadSample, setWalkAhead, clearSample };
+  LS.trip = { addWaypoint, redrawPlan, togglePause, show, loadSample, setWalkAhead, clearSample, start, hasPlan: () => R.waypoints.length >= 2 };
 })();

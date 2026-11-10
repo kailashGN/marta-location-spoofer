@@ -59,6 +59,8 @@
     grabber.addEventListener('click', () => { measure(); apply(!expanded); });
     $('tabs').addEventListener('pointerdown', () => { if (mq.matches && !expanded) { measure(); apply(true); } });
     mq.addEventListener('change', () => { if (!mq.matches) { spring.set(0); expanded = true; } });
+    // The tour opens the sheet when it points at something inside it.
+    LS.sheet = { expand: () => { if (mq.matches && !expanded) { measure(); apply(true); } } };
   })();
 
   // ------------------------------------------------------------------ boot

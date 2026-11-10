@@ -237,8 +237,8 @@ def _adb_missing() -> SpoofError:
     return SpoofError(
         "adb was not found",
         [
-            "Install Android platform-tools, or run brew install android-platform-tools.",
-            "Android Studio’s SDK at ~/Library/Android/sdk/platform-tools also works.",
+            "Quit Location Spoofer and start it again: setup downloads the Android tools.",
+            "If setup warned that the download failed, check the internet connection and start it again.",
         ],
         code="adb_missing",
     )
