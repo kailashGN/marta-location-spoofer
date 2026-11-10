@@ -71,7 +71,11 @@ Don't see **Developer Mode**? Ask the dev team. It only shows up once the phone 
 
 ## Part 1: On the phone
 
-▶️ **[Watch the phone steps (26-second video)](videos/phone-walkthrough.mp4)**
+This 26-second video shows all three phone steps:
+
+https://github.com/user-attachments/assets/1607c21b-9071-46e5-a8ca-3927c8c752f5
+
+Video not playing? [Open it here](videos/phone-walkthrough.mp4).
 
 Here you start a trip in the MARTA app and save it as a GPX file. A GPX file is the trip's route with a time for each point, which is what Location Spoofer plays back.
 
