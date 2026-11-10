@@ -37,6 +37,9 @@ from .geo import Point, bearing_deg, destination, haversine_m, paced_wait, resam
 log = logging.getLogger(__name__)
 
 PUBLISH_INTERVAL_S = 1.0
+# A send that gets no answer in this long fails instead of holding every later send. Longer than the
+# Android helper's own 8 s reply timeout plus one reconnect.
+SET_TIMEOUT_S = 15.0
 # Sent with every fix while GPS is "lost": MARTA drops readings worse than 100 m.
 LOST_ACCURACY_M = 150.0
 # Republishing an unchanged point alternates this tiny nudge so the phone sees a fresh fix; it is
@@ -197,6 +200,8 @@ class SpoofSession:
         self.log_seq = 0
         self._rng = rng or random.Random()
         self._sent_accuracy: Optional[float] = None
+        # ``time.monotonic()`` of the first failed send in a row, or ``None`` while fixes get through.
+        self._failing_since: Optional[float] = None
         self._driver: Any = None
         self._route_task: Optional[asyncio.Task[None]] = None
         self._publisher_task: Optional[asyncio.Task[None]] = None
@@ -289,6 +294,12 @@ class SpoofSession:
                 "lost_supported": self.platform == "android",
             },
             "away_m": away,
+            # Whether fixes are reaching the phone. While failing, the pin stays at the last fix sent.
+            "link": {
+                "ok": self._failing_since is None,
+                "failing_s": None if self._failing_since is None else now - self._failing_since,
+                "error": self.last_error if self._failing_since is not None else None,
+            },
             "route": route,
             "log_seq": self.log_seq,
             "last_error": self.last_error,
@@ -313,7 +324,9 @@ class SpoofSession:
     async def connect(self, udid: str, pair_timeout: float = 30.0) -> dict[str, Any]:
         async with self._lock:
             if self.connected and self._driver is not None and self._driver.udid == udid:
-                return self.snapshot()
+                if await self._driver_alive():
+                    return self.snapshot()
+                self.note("device", "Connection was not answering · reconnecting")
             await self._teardown()
             try:
                 await self._connect_locked(udid, pair_timeout)
@@ -348,6 +361,17 @@ class SpoofSession:
             raise
         self._driver = driver
 
+    async def _driver_alive(self) -> bool:
+        ping = getattr(self._driver, "ping", None)
+        if ping is None:
+            return True
+        try:
+            await ping()
+        except Exception as exc:  # noqa: BLE001
+            log.info("driver ping failed: %r", exc)
+            return False
+        return True
+
     async def disconnect(self) -> None:
         async with self._lock:
             had = self._driver is not None
@@ -372,12 +396,34 @@ class SpoofSession:
         self.gps_mode = "normal"
         self.jitter_m = 0.0
         self._sent_accuracy = None
+        self._failing_since = None
 
     # ------------------------------------------------------------------ publisher
     def _start_publisher(self) -> None:
         if self._publisher_task is None or self._publisher_task.done():
             self._stopping = False
             self._publisher_task = asyncio.create_task(self._publisher_loop())
+
+    def ensure_publisher(self) -> None:
+        """Restart the 1 Hz publisher if it has stopped while a phone is connected.
+
+        Without it only button presses (Set location, offsets, GPS modes) reach the phone, so a
+        walking trip looks frozen on the phone while the map shows it moving.
+        """
+        task = self._publisher_task
+        if not self.connected or self._stopping or (task is not None and not task.done()):
+            return
+        reason = "not running"
+        if task is not None:
+            if task.cancelled():
+                reason = "cancelled"
+            elif task.exception() is not None:
+                reason = repr(task.exception())
+            else:
+                reason = "exited"
+        log.warning("publisher had stopped (%s); restarting", reason)
+        self.note("error", f"Location updates had stopped ({reason}) · restarted them")
+        self._start_publisher()
 
     async def _stop_publisher(self) -> None:
         task = self._publisher_task
@@ -398,7 +444,9 @@ class SpoofSession:
 
     async def _publisher_loop(self) -> None:
         last_error: Optional[str] = None
-        while not self._stopping:
+        me = asyncio.current_task()
+        # wait_for (3.11) can swallow a cancel, so also stop once one is pending.
+        while not self._stopping and not (me is not None and me.cancelling()):
             try:
                 await asyncio.wait_for(self._wake.wait(), timeout=PUBLISH_INTERVAL_S)
             except asyncio.TimeoutError:
@@ -410,7 +458,15 @@ class SpoofSession:
                 await self.publish_now()
                 last_error = None
             except asyncio.CancelledError:
-                raise
+                task = asyncio.current_task()
+                if self._stopping or (task is not None and task.cancelling()):
+                    raise
+                # A future inside the driver was cancelled; that is a failed send, not a stop.
+                message = "The phone's connection cancelled a location update"
+                if message != last_error:
+                    self.note("error", message)
+                    log.warning("publish cancelled inside the driver; carrying on")
+                last_error = message
             except Exception as exc:  # noqa: BLE001
                 message = getattr(exc, "message", None) or str(exc) or exc.__class__.__name__
                 if message != last_error:
@@ -466,18 +522,28 @@ class SpoofSession:
         assert self._driver is not None
         try:
             if accuracy is None and self._sent_accuracy is None:
-                await self._driver.set(lat, lon)
+                await asyncio.wait_for(self._driver.set(lat, lon), SET_TIMEOUT_S)
             else:
-                await self._driver.set(lat, lon, accuracy)
+                await asyncio.wait_for(self._driver.set(lat, lon, accuracy), SET_TIMEOUT_S)
         except SpoofError as exc:
             self.last_error = exc.message
+            self._mark_failing()
             raise
         except Exception as exc:  # noqa: BLE001
             self.last_error = str(exc)
+            self._mark_failing()
             raise self._translate(exc) from exc
         self._sent_accuracy = accuracy
         self.current = Point(lat, lon)
         self.last_error = None
+        if self._failing_since is not None:
+            down = time.monotonic() - self._failing_since
+            self._failing_since = None
+            self.note("device", f"Connection restored after {_fmt_s(down)} · the phone is getting fixes again")
+
+    def _mark_failing(self) -> None:
+        if self._failing_since is None:
+            self._failing_since = time.monotonic()
 
     # ------------------------------------------------------------------ static location
     async def set_location(self, lat: float, lon: float) -> dict[str, Any]:
@@ -564,6 +630,7 @@ class SpoofSession:
         self.offset = Offset()  # every trip starts on course
         self.note("route", label or ("Trip started · GPX schedule" if timing == "gpx" else "Route started"))
         self._route_task = asyncio.create_task(self._run_route(loop, start_index))
+        self.ensure_publisher()
         return self.snapshot()
 
     async def _run_route(self, loop: bool, start_index: int = 0) -> None:

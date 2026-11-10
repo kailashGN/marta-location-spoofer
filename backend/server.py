@@ -151,6 +151,8 @@ async def devices() -> dict[str, Any]:
 
 @app.get("/api/status")
 async def status() -> dict[str, Any]:
+    # The UI polls this every second, so it doubles as the publisher's watchdog.
+    session.ensure_publisher()
     return session.snapshot()
 
 

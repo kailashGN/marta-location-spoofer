@@ -3,6 +3,7 @@
 import asyncio
 import random
 import unittest
+from unittest import mock
 
 from pydantic import ValidationError
 
@@ -221,6 +222,126 @@ class PublishTests(unittest.TestCase):
         snap = asyncio.run(run())
         self.assertIsNone(snap["route"])
         self.assertEqual(snap["base"], {"lat": ORIGIN.lat, "lon": ORIGIN.lon})
+
+
+class LinkHealthTests(unittest.TestCase):
+    def test_failed_sends_show_in_status_and_recovery_is_logged(self):
+        session = _session("android")
+        session.base = ORIGIN
+        driver = session._driver
+        real_set = driver.set
+
+        async def broken(lat, lon, accuracy=None):
+            raise SpoofError("Lost the connection to the phone", code="link")
+
+        async def run():
+            driver.set = broken
+            with self.assertRaises(SpoofError):
+                await session.publish_now()
+            down = session.snapshot()
+            driver.set = real_set
+            await session.publish_now()
+            return down, session.snapshot()
+
+        down, up = asyncio.run(run())
+        self.assertFalse(down["link"]["ok"])
+        self.assertEqual(down["link"]["error"], "Lost the connection to the phone")
+        self.assertIsNone(down["location"])  # the pin stays where the phone last was
+        self.assertTrue(up["link"]["ok"])
+        self.assertIsNone(up["link"]["error"])
+        self.assertIn("Connection restored", session.log[-1]["text"])
+
+    def test_connect_to_same_phone_reconnects_when_it_stops_answering(self):
+        session = _session("android")
+        connects = []
+
+        async def dead_ping():
+            raise SpoofError("Lost the connection to the phone", code="link")
+
+        async def fake_connect(udid, pair_timeout):
+            connects.append(udid)
+            session._driver = _FakeDriver("android")
+
+        async def run():
+            session._driver.ping = dead_ping
+            session._connect_locked = fake_connect
+            await session.connect("TEST")
+            await session.connect("TEST")  # healthy now: no second reconnect
+
+        asyncio.run(run())
+        self.assertEqual(connects, ["TEST"])
+
+
+class PublisherSurvivalTests(unittest.TestCase):
+    """A walking trip must keep reaching the phone, not only when a button is pressed."""
+
+    def test_cancelled_future_inside_the_driver_does_not_stop_the_publisher(self):
+        session = _session()
+        session.base = ORIGIN
+        driver = session._driver
+        real_set = driver.set
+        calls = {"n": 0}
+
+        async def flaky(lat, lon, accuracy=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise asyncio.CancelledError()  # e.g. a DTX reply future cancelled under us
+            await real_set(lat, lon, accuracy)
+
+        async def run():
+            driver.set = flaky
+            session._start_publisher()
+            await asyncio.sleep(2.3)
+            alive = not session._publisher_task.done()
+            await session._stop_publisher()
+            return alive
+
+        self.assertTrue(asyncio.run(run()))
+        self.assertGreaterEqual(len(driver.sent), 1)
+        self.assertTrue(any("cancelled a location update" in e["text"] for e in session.log))
+
+    def test_status_watchdog_restarts_a_dead_publisher(self):
+        session = _session()
+        session.base = ORIGIN
+
+        async def run():
+            async def die():
+                raise RuntimeError("boom")
+            session._publisher_task = asyncio.create_task(die())
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            session.ensure_publisher()
+            await asyncio.sleep(1.2)
+            alive = not session._publisher_task.done()
+            await session._stop_publisher()
+            return alive
+
+        self.assertTrue(asyncio.run(run()))
+        self.assertTrue(session._driver.sent)
+        self.assertIn("RuntimeError('boom')", " ".join(e["text"] for e in session.log))
+
+    def test_no_restart_after_disconnect(self):
+        session = _session()
+        session._driver.connected = False
+        session.ensure_publisher()
+        self.assertIsNone(session._publisher_task)
+
+    def test_hung_send_times_out_instead_of_holding_every_later_send(self):
+        session = _session()
+        session.base = ORIGIN
+
+        async def hang(lat, lon, accuracy=None):
+            await asyncio.sleep(3600)
+
+        async def run():
+            session._driver.set = hang
+            with mock.patch("backend.spoof.SET_TIMEOUT_S", 0.05):
+                with self.assertRaises(SpoofError):
+                    await session.publish_now()
+            return session.snapshot()
+
+        snap = asyncio.run(run())
+        self.assertFalse(snap["link"]["ok"])
 
 
 class LogTests(unittest.TestCase):

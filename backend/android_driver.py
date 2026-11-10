@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Optional
 
 from .android_adb import (
@@ -23,6 +24,12 @@ from .android_adb import (
 from .spoof import SpoofError
 
 log = logging.getLogger(__name__)
+
+# A dropped link is rebuilt at most this often, so a 1 Hz publisher doesn't hammer adb while the phone
+# is unplugged.
+RECONNECT_BACKOFF_S = 2.0
+# What a dead socket looks like: adb dropped the forward, the helper restarted, or the cable came out.
+_LINK_ERRORS = (ConnectionError, OSError, asyncio.IncompleteReadError)
 
 _IDENTITY_SHELL = (
     "getprop ro.product.model; getprop ro.build.version.release; settings get global device_name"
@@ -44,10 +51,14 @@ class AndroidDriver:
         self._io_lock = asyncio.Lock()
         self._local_port: Optional[int] = None
         self._service_started = False
+        # True from a successful connect until disconnect, even while the socket is being rebuilt.
+        self._active = False
+        self._reconnect_lock = asyncio.Lock()
+        self._retry_at = 0.0
 
     @property
     def connected(self) -> bool:
-        return self._writer is not None
+        return self._active
 
     async def connect(self, udid: str, pair_timeout: float = 30.0) -> None:
         del pair_timeout  # iOS pairing timeout; Android uses the USB-debugging prompt instead.
@@ -78,27 +89,59 @@ class AndroidDriver:
         self.transport = "adb"
         self.device_name, self.android_version = await _identity(udid)
         await _ensure_helper(udid)
+        await self._start_service()
+        await self._forward()
+        await self._open_and_ping()
+        self._active = True
+        log.info("Android helper ready on %s via local port %s", udid, self._local_port)
+
+    async def _start_service(self) -> None:
+        """Grant mock location and start the helper. Both are no-ops when already done."""
+        assert self.udid is not None
         code, _, err = await adb(
             "shell", "appops", "set", PACKAGE, "android:mock_location", "allow",
-            serial=udid, timeout=10,
+            serial=self.udid, timeout=10,
         )
         if code != 0:
             raise SpoofError(err.strip() or "Could not grant mock location", code="mock_location")
 
         code, _, err = await adb(
             "shell", "am", "start-foreground-service", "-n", SERVICE,
-            serial=udid, timeout=15,
+            serial=self.udid, timeout=15,
         )
         if code != 0:
             raise SpoofError(err.strip() or "Could not start the helper", code="android")
         self._service_started = True
 
-        code, out, err = await adb("forward", f"tcp:0", f"tcp:{DEVICE_PORT}", serial=udid, timeout=10)
+    async def _forward(self) -> None:
+        """(Re)create the ``adb forward`` to the helper, dropping the old one if there was one."""
+        assert self.udid is not None
+        if self._local_port is not None:
+            await adb("forward", "--remove", f"tcp:{self._local_port}", serial=self.udid, timeout=10)
+            self._local_port = None
+        code, out, err = await adb("forward", "tcp:0", f"tcp:{DEVICE_PORT}", serial=self.udid, timeout=10)
         if code != 0 or not out.strip():
             raise SpoofError(err.strip() or "Could not forward the helper port", code="android")
         self._local_port = int(out.strip().split()[-1])
-        await self._open_and_ping()
-        log.info("Android helper ready on %s via local port %s", udid, self._local_port)
+
+    async def _reconnect(self) -> None:
+        """Rebuild a dropped link: the phone must still be there; restart the helper and the forward."""
+        async with self._reconnect_lock:
+            if self._writer is not None or not self._active:
+                return  # another caller already rebuilt it, or we are disconnecting
+            now = time.monotonic()
+            if now < self._retry_at:
+                raise _link_lost()
+            self._retry_at = now + RECONNECT_BACKOFF_S
+            assert self.udid is not None
+            state = await _device_state(self.udid)
+            if state != "device":
+                raise _link_lost(state)
+            await self._start_service()
+            await self._forward()
+            await self._open_and_ping()
+            self._retry_at = 0.0
+            log.info("Android helper link rebuilt on %s via local port %s", self.udid, self._local_port)
 
     async def _open_and_ping(self) -> None:
         assert self._local_port is not None
@@ -109,7 +152,7 @@ class AndroidDriver:
                     asyncio.open_connection("127.0.0.1", self._local_port),
                     timeout=2,
                 )
-                await self._command("PING")
+                await self._exchange("PING")
                 return
             except Exception as exc:  # noqa: BLE001 — the service may not be listening yet
                 last = exc
@@ -120,6 +163,9 @@ class AndroidDriver:
             ["Unlock the phone and press Connect again.", f"Details: {last!r}"],
             code="android",
         )
+
+    async def ping(self) -> None:
+        await self._command("PING")
 
     async def set(self, lat: float, lon: float, accuracy: Optional[float] = None) -> None:
         if accuracy is None:
@@ -154,9 +200,10 @@ class AndroidDriver:
         await self._command("CLEAR")
 
     async def disconnect(self) -> None:
+        self._active = False
         if self._writer is not None:
             try:
-                await self._command("CLEAR")
+                await self._exchange("CLEAR")
             except Exception as exc:  # noqa: BLE001
                 log.debug("CLEAR during disconnect failed: %r", exc)
         await self._close_socket()
@@ -176,21 +223,42 @@ class AndroidDriver:
         self.transport = None
 
     async def _command(self, line: str) -> str:
-        if self._writer is None or self._reader is None:
+        """Send one command. If the link has dropped, rebuild it and send once more."""
+        if not self._active:
             raise SpoofError("The helper connection is closed", ["Press Connect again."], code="not_connected")
-        async with self._io_lock:
-            self._writer.write(f"{line}\n".encode())
-            await self._writer.drain()
+        if self._writer is not None:
             try:
-                raw = await asyncio.wait_for(self._reader.readline(), timeout=8)
+                return await self._exchange(line)
+            except _LinkDown as exc:
+                log.warning("helper link dropped (%s); reconnecting", exc)
+        await self._reconnect()
+        try:
+            return await self._exchange(line)
+        except _LinkDown as exc:
+            raise _link_lost() from exc
+
+    async def _exchange(self, line: str) -> str:
+        """One request/reply on the open socket. A dead socket is closed and raises ``_LinkDown``."""
+        if self._writer is None or self._reader is None:
+            raise _LinkDown("no socket")
+        async with self._io_lock:
+            writer, reader = self._writer, self._reader
+            if writer is None or reader is None:
+                raise _LinkDown("no socket")
+            try:
+                writer.write(f"{line}\n".encode())
+                await writer.drain()
+                raw = await asyncio.wait_for(reader.readline(), timeout=8)
             except asyncio.TimeoutError as exc:
-                raise SpoofError(
-                    "The helper did not answer in time",
-                    ["Unlock the phone and press Connect again."],
-                    code="timeout",
-                ) from exc
-        if not raw:
-            raise SpoofError("The helper closed the connection", ["Press Connect again."], code="android")
+                # A late reply would pair with the next command, so start over on a fresh socket.
+                await self._close_socket()
+                raise _LinkDown("no reply in 8 s") from exc
+            except _LINK_ERRORS as exc:
+                await self._close_socket()
+                raise _LinkDown(repr(exc)) from exc
+            if not raw:
+                await self._close_socket()
+                raise _LinkDown("helper closed the connection")
         return _accept_reply(raw.decode(errors="replace").strip())
 
     async def _close_socket(self) -> None:
@@ -223,6 +291,24 @@ def _accept_reply(text: str) -> str:
             )
         raise SpoofError(reason, code="android")
     raise SpoofError(text or "Unexpected helper reply", code="android")
+
+
+class _LinkDown(Exception):
+    """The socket to the helper is gone; ``_command`` rebuilds it."""
+
+
+def _link_lost(state: Optional[str] = None) -> SpoofError:
+    if state is None:
+        return SpoofError(
+            "Lost the connection to the phone",
+            ["Trying again every few seconds.", "If it keeps failing, press Disconnect, then Connect."],
+            code="link",
+        )
+    if state == "unauthorized":
+        steps = ["Unlock the phone and tap Allow on the USB debugging prompt."]
+    else:
+        steps = ["Check the USB cable and unlock the phone.", "It reconnects by itself once the phone is back."]
+    return SpoofError("The phone is not reachable over adb", steps, code="link")
 
 
 def _helper_outdated() -> SpoofError:
