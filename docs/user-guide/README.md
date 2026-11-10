@@ -75,8 +75,6 @@ This 26-second video shows all three phone steps:
 
 https://github.com/user-attachments/assets/1607c21b-9071-46e5-a8ca-3927c8c752f5
 
-Video not playing? [Open it here](videos/phone-walkthrough.mp4).
-
 Here you start a trip in the MARTA app and save it as a GPX file. A GPX file is the trip's route with a time for each point, which is what Location Spoofer plays back.
 
 > **Testing the App Store or Play Store version?** It doesn't have the secret menu, so skip Steps 1 and 3. Ask someone with a test build for a fresh GPX file, then carry on with Part 2. Location Spoofer works the same with any version of the app.
