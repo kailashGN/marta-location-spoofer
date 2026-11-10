@@ -28,7 +28,7 @@ You do this once on each Mac and once for each phone.
 
 ### 2. Start it for the first time
 
-1. Open the folder and double-click **Start Location Spoofer**.
+1. Open the folder and double-click **Start Location Spoofer.command**.
 2. macOS will probably say it can't check the file for harmful software. That's normal for tools we build ourselves. Click **Done**, then:
    1. Open **System Settings** and go to **Privacy & Security**.
    2. Scroll down to the message about **Start Location Spoofer** and click **Open Anyway**.
