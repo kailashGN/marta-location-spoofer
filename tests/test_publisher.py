@@ -3,6 +3,7 @@
 import asyncio
 import random
 import unittest
+from unittest import mock
 
 from pydantic import ValidationError
 
@@ -269,6 +270,78 @@ class LinkHealthTests(unittest.TestCase):
 
         asyncio.run(run())
         self.assertEqual(connects, ["TEST"])
+
+
+class PublisherSurvivalTests(unittest.TestCase):
+    """A walking trip must keep reaching the phone, not only when a button is pressed."""
+
+    def test_cancelled_future_inside_the_driver_does_not_stop_the_publisher(self):
+        session = _session()
+        session.base = ORIGIN
+        driver = session._driver
+        real_set = driver.set
+        calls = {"n": 0}
+
+        async def flaky(lat, lon, accuracy=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise asyncio.CancelledError()  # e.g. a DTX reply future cancelled under us
+            await real_set(lat, lon, accuracy)
+
+        async def run():
+            driver.set = flaky
+            session._start_publisher()
+            await asyncio.sleep(2.3)
+            alive = not session._publisher_task.done()
+            await session._stop_publisher()
+            return alive
+
+        self.assertTrue(asyncio.run(run()))
+        self.assertGreaterEqual(len(driver.sent), 1)
+        self.assertTrue(any("cancelled a location update" in e["text"] for e in session.log))
+
+    def test_status_watchdog_restarts_a_dead_publisher(self):
+        session = _session()
+        session.base = ORIGIN
+
+        async def run():
+            async def die():
+                raise RuntimeError("boom")
+            session._publisher_task = asyncio.create_task(die())
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            session.ensure_publisher()
+            await asyncio.sleep(1.2)
+            alive = not session._publisher_task.done()
+            await session._stop_publisher()
+            return alive
+
+        self.assertTrue(asyncio.run(run()))
+        self.assertTrue(session._driver.sent)
+        self.assertIn("RuntimeError('boom')", " ".join(e["text"] for e in session.log))
+
+    def test_no_restart_after_disconnect(self):
+        session = _session()
+        session._driver.connected = False
+        session.ensure_publisher()
+        self.assertIsNone(session._publisher_task)
+
+    def test_hung_send_times_out_instead_of_holding_every_later_send(self):
+        session = _session()
+        session.base = ORIGIN
+
+        async def hang(lat, lon, accuracy=None):
+            await asyncio.sleep(3600)
+
+        async def run():
+            session._driver.set = hang
+            with mock.patch("backend.spoof.SET_TIMEOUT_S", 0.05):
+                with self.assertRaises(SpoofError):
+                    await session.publish_now()
+            return session.snapshot()
+
+        snap = asyncio.run(run())
+        self.assertFalse(snap["link"]["ok"])
 
 
 class LogTests(unittest.TestCase):

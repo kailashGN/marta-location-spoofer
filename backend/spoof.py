@@ -37,6 +37,9 @@ from .geo import Point, bearing_deg, destination, haversine_m, paced_wait, resam
 log = logging.getLogger(__name__)
 
 PUBLISH_INTERVAL_S = 1.0
+# A send that gets no answer in this long fails instead of holding every later send. Longer than the
+# Android helper's own 8 s reply timeout plus one reconnect.
+SET_TIMEOUT_S = 15.0
 # Sent with every fix while GPS is "lost": MARTA drops readings worse than 100 m.
 LOST_ACCURACY_M = 150.0
 # Republishing an unchanged point alternates this tiny nudge so the phone sees a fresh fix; it is
@@ -401,6 +404,27 @@ class SpoofSession:
             self._stopping = False
             self._publisher_task = asyncio.create_task(self._publisher_loop())
 
+    def ensure_publisher(self) -> None:
+        """Restart the 1 Hz publisher if it has stopped while a phone is connected.
+
+        Without it only button presses (Set location, offsets, GPS modes) reach the phone, so a
+        walking trip looks frozen on the phone while the map shows it moving.
+        """
+        task = self._publisher_task
+        if not self.connected or self._stopping or (task is not None and not task.done()):
+            return
+        reason = "not running"
+        if task is not None:
+            if task.cancelled():
+                reason = "cancelled"
+            elif task.exception() is not None:
+                reason = repr(task.exception())
+            else:
+                reason = "exited"
+        log.warning("publisher had stopped (%s); restarting", reason)
+        self.note("error", f"Location updates had stopped ({reason}) · restarted them")
+        self._start_publisher()
+
     async def _stop_publisher(self) -> None:
         task = self._publisher_task
         self._publisher_task = None
@@ -420,7 +444,9 @@ class SpoofSession:
 
     async def _publisher_loop(self) -> None:
         last_error: Optional[str] = None
-        while not self._stopping:
+        me = asyncio.current_task()
+        # wait_for (3.11) can swallow a cancel, so also stop once one is pending.
+        while not self._stopping and not (me is not None and me.cancelling()):
             try:
                 await asyncio.wait_for(self._wake.wait(), timeout=PUBLISH_INTERVAL_S)
             except asyncio.TimeoutError:
@@ -432,7 +458,15 @@ class SpoofSession:
                 await self.publish_now()
                 last_error = None
             except asyncio.CancelledError:
-                raise
+                task = asyncio.current_task()
+                if self._stopping or (task is not None and task.cancelling()):
+                    raise
+                # A future inside the driver was cancelled; that is a failed send, not a stop.
+                message = "The phone's connection cancelled a location update"
+                if message != last_error:
+                    self.note("error", message)
+                    log.warning("publish cancelled inside the driver; carrying on")
+                last_error = message
             except Exception as exc:  # noqa: BLE001
                 message = getattr(exc, "message", None) or str(exc) or exc.__class__.__name__
                 if message != last_error:
@@ -488,9 +522,9 @@ class SpoofSession:
         assert self._driver is not None
         try:
             if accuracy is None and self._sent_accuracy is None:
-                await self._driver.set(lat, lon)
+                await asyncio.wait_for(self._driver.set(lat, lon), SET_TIMEOUT_S)
             else:
-                await self._driver.set(lat, lon, accuracy)
+                await asyncio.wait_for(self._driver.set(lat, lon, accuracy), SET_TIMEOUT_S)
         except SpoofError as exc:
             self.last_error = exc.message
             self._mark_failing()
@@ -596,6 +630,7 @@ class SpoofSession:
         self.offset = Offset()  # every trip starts on course
         self.note("route", label or ("Trip started · GPX schedule" if timing == "gpx" else "Route started"))
         self._route_task = asyncio.create_task(self._run_route(loop, start_index))
+        self.ensure_publisher()
         return self.snapshot()
 
     async def _run_route(self, loop: bool, start_index: int = 0) -> None:
