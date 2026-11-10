@@ -4,6 +4,8 @@ import asyncio
 import unittest
 
 from backend.android_adb import (
+    BUNDLED_ADB,
+    default_adb_candidates,
     find_adb,
     parse_adb_devices,
     parse_android_identity,
@@ -55,6 +57,9 @@ class AdbParseTests(unittest.TestCase):
     def test_find_adb_prefers_path_and_reports_missing(self):
         self.assertEqual(find_adb(which=lambda _name: "/usr/bin/adb", extra=[]), "/usr/bin/adb")
         self.assertIsNone(find_adb(which=lambda _name: None, extra=[]))
+
+    def test_find_adb_includes_the_copy_setup_downloads(self):
+        self.assertIn(BUNDLED_ADB, default_adb_candidates())
 
 
 class _Reader:

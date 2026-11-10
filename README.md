@@ -68,9 +68,19 @@ cd marta-location-spoofer
 ./scripts/run.sh
 ```
 
+Or double-click **Start Location Spoofer.command** in Finder, which runs the same script in a Terminal window. QA testers should follow the [user guide](docs/user-guide/README.md).
+
 Run it from the repo root as shown (or `./run.sh` from inside `scripts/`). A bare `run.sh` won't work, because the shell doesn't look for commands in the current folder.
 
-The first run creates `.venv` and installs `requirements.txt` (needs Python 3 on the Mac), then opens the UI at `http://127.0.0.1:8420`.
+`run.sh` prints five numbered steps and stops on the first failure, naming the step. Output is also saved to `logs/setup.log`. Each step is skipped once done, so it doubles as the everyday launcher:
+
+1. Checks macOS is 13 or newer, and clears the download quarantine flag if the repo came from a ZIP.
+2. Gets Python 3.10+. It downloads [uv](https://github.com/astral-sh/uv) and uses it to install Python 3.11 into `.tools/`, with no admin rights and nothing outside the repo. Apple's `/usr/bin/python3` (3.9) is never used: playback creates asyncio primitives at import, which breaks on 3.9. If the download fails, it falls back to a Python 3.10+ already on PATH.
+3. Creates `.venv`.
+4. Installs `requirements.txt`, again whenever its checksum changes (stored in `.venv/.requirements.sha`).
+5. Finds `adb` (PATH, `ANDROID_HOME`, Android Studio's SDK, `.tools/platform-tools`), or downloads Google's platform-tools into `.tools/`. A failed download is only a warning, because iPhones don't need it.
+
+It then opens the UI at `http://127.0.0.1:8420`, or just opens the browser if Location Spoofer is already running. Overrides: `LS_PYTHON` (use this interpreter for `.venv`), `LS_UV_URL`, `LS_ADB_URL`.
 
 To get a double-clickable **Location Spoofer.app** instead, see [Build from source](#build-from-source). Local builds are not notarized, so on first launch right-click the app and choose **Open**.
 
@@ -79,7 +89,7 @@ To get a double-clickable **Location Spoofer.app** instead, see [Build from sour
 - macOS 13 Ventura or newer, Apple silicon or Intel
 - **iPhone or iPad** on iOS / iPadOS 14 – 26, **or** an **Android phone** on Android 8 or newer, connected with a USB cable (physical devices are what this project targets; emulators are not the primary path)
 - **iPhone:** Developer Mode enabled (Settings → Privacy & Security → Developer Mode)
-- **Android:** USB debugging on, and `adb` on the Mac (`brew install android-platform-tools`, or Android Studio’s SDK at `~/Library/Android/sdk/platform-tools`)
+- **Android:** Developer options and USB debugging on. `run.sh` downloads `adb` if the Mac doesn't have it.
 
 Xcode is **not** required.
 
