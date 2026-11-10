@@ -331,6 +331,7 @@
         ? `<span class="chip chip-warn">Drifting · ${Math.round(o.current_m)} → ${Math.round(o.target_m)} m${side}</span>`
         : `<span class="chip ${o.current_m > LS.MARTA.OFF_COURSE_M ? 'chip-bad' : 'chip-warn'}">Off course · ${Math.round(o.current_m)} m${side}</span>`);
     }
+    if (st.link && !st.link.ok) chips.push(`<span class="chip chip-bad" title="${LS.esc(st.link.error)}">Phone not getting updates · retrying</span>`);
     if (st.gps && st.gps.mode === 'frozen') chips.push('<span class="chip chip-bad">GPS frozen</span>');
     if (st.gps && st.gps.mode === 'lost') chips.push('<span class="chip chip-bad">Lost signal</span>');
     if (st.gps && st.gps.jitter_m > 0) chips.push(`<span class="chip chip-warn">Jitter ±${st.gps.jitter_m} m</span>`);

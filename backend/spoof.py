@@ -197,6 +197,8 @@ class SpoofSession:
         self.log_seq = 0
         self._rng = rng or random.Random()
         self._sent_accuracy: Optional[float] = None
+        # ``time.monotonic()`` of the first failed send in a row, or ``None`` while fixes get through.
+        self._failing_since: Optional[float] = None
         self._driver: Any = None
         self._route_task: Optional[asyncio.Task[None]] = None
         self._publisher_task: Optional[asyncio.Task[None]] = None
@@ -289,6 +291,12 @@ class SpoofSession:
                 "lost_supported": self.platform == "android",
             },
             "away_m": away,
+            # Whether fixes are reaching the phone. While failing, the pin stays at the last fix sent.
+            "link": {
+                "ok": self._failing_since is None,
+                "failing_s": None if self._failing_since is None else now - self._failing_since,
+                "error": self.last_error if self._failing_since is not None else None,
+            },
             "route": route,
             "log_seq": self.log_seq,
             "last_error": self.last_error,
@@ -313,7 +321,9 @@ class SpoofSession:
     async def connect(self, udid: str, pair_timeout: float = 30.0) -> dict[str, Any]:
         async with self._lock:
             if self.connected and self._driver is not None and self._driver.udid == udid:
-                return self.snapshot()
+                if await self._driver_alive():
+                    return self.snapshot()
+                self.note("device", "Connection was not answering · reconnecting")
             await self._teardown()
             try:
                 await self._connect_locked(udid, pair_timeout)
@@ -348,6 +358,17 @@ class SpoofSession:
             raise
         self._driver = driver
 
+    async def _driver_alive(self) -> bool:
+        ping = getattr(self._driver, "ping", None)
+        if ping is None:
+            return True
+        try:
+            await ping()
+        except Exception as exc:  # noqa: BLE001
+            log.info("driver ping failed: %r", exc)
+            return False
+        return True
+
     async def disconnect(self) -> None:
         async with self._lock:
             had = self._driver is not None
@@ -372,6 +393,7 @@ class SpoofSession:
         self.gps_mode = "normal"
         self.jitter_m = 0.0
         self._sent_accuracy = None
+        self._failing_since = None
 
     # ------------------------------------------------------------------ publisher
     def _start_publisher(self) -> None:
@@ -471,13 +493,23 @@ class SpoofSession:
                 await self._driver.set(lat, lon, accuracy)
         except SpoofError as exc:
             self.last_error = exc.message
+            self._mark_failing()
             raise
         except Exception as exc:  # noqa: BLE001
             self.last_error = str(exc)
+            self._mark_failing()
             raise self._translate(exc) from exc
         self._sent_accuracy = accuracy
         self.current = Point(lat, lon)
         self.last_error = None
+        if self._failing_since is not None:
+            down = time.monotonic() - self._failing_since
+            self._failing_since = None
+            self.note("device", f"Connection restored after {_fmt_s(down)} · the phone is getting fixes again")
+
+    def _mark_failing(self) -> None:
+        if self._failing_since is None:
+            self._failing_since = time.monotonic()
 
     # ------------------------------------------------------------------ static location
     async def set_location(self, lat: float, lon: float) -> dict[str, Any]:

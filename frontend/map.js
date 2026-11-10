@@ -113,7 +113,8 @@
     if (pinEl) {
       pinEl.classList.toggle('live', !!live && !r);
       pinEl.classList.toggle('off', !!(st && st.offset && st.offset.current_m > 0));
-      pinEl.classList.toggle('frozen', !!(st && st.gps && st.gps.mode !== 'normal'));
+      // Grey while the phone isn't getting fixes, so the gap to the ghost reads as "stuck", not "off course".
+      pinEl.classList.toggle('frozen', !!(st && ((st.gps && st.gps.mode !== 'normal') || (st.link && !st.link.ok))));
     }
 
     // Ghost: where the rider "really" is when the published fix is moved away from it.

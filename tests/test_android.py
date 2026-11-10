@@ -2,6 +2,7 @@
 
 import asyncio
 import unittest
+from unittest import mock
 
 from backend.android_adb import (
     BUNDLED_ADB,
@@ -13,6 +14,7 @@ from backend.android_adb import (
     parse_package_installed,
     parse_version_code,
 )
+from backend import android_driver
 from backend.android_driver import AndroidDriver
 from backend.device import describe_android_device
 from backend.spoof import SpoofError
@@ -71,19 +73,32 @@ class _Reader:
 
 
 class _Writer:
-    def __init__(self):
+    def __init__(self, fail=None):
         self.buf = b""
+        self.fail = fail
+        self.closed = False
 
     def write(self, data):
+        if self.fail is not None:
+            raise self.fail
         self.buf += data
 
     async def drain(self):
+        return None
+
+    def close(self):
+        self.closed = True
+
+    async def wait_closed(self):
         return None
 
 
 class HelperProtocolTests(unittest.TestCase):
     def _driver(self, replies):
         driver = AndroidDriver()
+        driver.udid = "emulator-5554"
+        driver._active = True
+        driver._local_port = 50000
         driver._reader = _Reader(replies)
         driver._writer = _Writer()
         return driver
@@ -124,6 +139,84 @@ class HelperProtocolTests(unittest.TestCase):
             asyncio.run(driver.set(33.7, -84.4))
         self.assertEqual(caught.exception.code, "mock_location")
         self.assertIn("Developer options", " ".join(caught.exception.steps))
+
+
+
+class ReconnectTests(unittest.TestCase):
+    """A dropped ``adb forward`` or restarted helper must not leave the phone silently frozen."""
+
+    def _driver(self, writer, reader_lines=()):
+        driver = AndroidDriver()
+        driver.udid = "emulator-5554"
+        driver._active = True
+        driver._local_port = 50000
+        driver._reader = _Reader(reader_lines)
+        driver._writer = writer
+        return driver
+
+    def _patch(self, driver, state="device", fresh=None, ping_ok=True):
+        """Fake adb and the socket so a reconnect hands the driver ``fresh`` (a new writer)."""
+        calls = []
+
+        async def fake_adb(*args, serial=None, timeout=10):
+            calls.append(args)
+            if args[:1] == ("devices",):
+                return 0, f"List of devices attached\n{serial or 'emulator-5554'}\t{state}\n", ""
+            if args[:2] == ("forward", "tcp:0"):
+                return 0, "50001\n", ""
+            return 0, "", ""
+
+        async def fake_open():
+            if not ping_ok:
+                raise android_driver.SpoofError("The helper did not answer", code="android")
+            driver._reader = _Reader([b"OK\n"] * 4)
+            driver._writer = fresh
+
+        return calls, mock.patch.object(android_driver, "adb", fake_adb), mock.patch.object(driver, "_open_and_ping", fake_open)
+
+    def test_broken_pipe_rebuilds_the_link_and_resends(self):
+        dead = _Writer(fail=BrokenPipeError(32, "Broken pipe"))
+        fresh = _Writer()
+        driver = self._driver(dead)
+        calls, p_adb, p_open = self._patch(driver, fresh=fresh)
+        with p_adb, p_open:
+            asyncio.run(driver.set(33.75, -84.39))
+        self.assertTrue(dead.closed)
+        self.assertEqual(fresh.buf, b"SET 33.75 -84.39\n")
+        self.assertIn(("forward", "--remove", "tcp:50000"), calls)
+        self.assertIn(("shell", "am", "start-foreground-service", "-n", android_driver.SERVICE), calls)
+        self.assertEqual(driver._local_port, 50001)
+        self.assertTrue(driver.connected)
+
+    def test_helper_closing_the_socket_rebuilds_the_link(self):
+        fresh = _Writer()
+        driver = self._driver(_Writer(), reader_lines=[b""])
+        _, p_adb, p_open = self._patch(driver, fresh=fresh)
+        with p_adb, p_open:
+            asyncio.run(driver.set(33.75, -84.39))
+        self.assertEqual(fresh.buf, b"SET 33.75 -84.39\n")
+
+    def test_unplugged_phone_is_a_link_error_and_backs_off(self):
+        driver = self._driver(_Writer(fail=ConnectionResetError("Connection lost")))
+        calls, p_adb, p_open = self._patch(driver, state="offline")
+        with p_adb, p_open:
+            with self.assertRaises(SpoofError) as first:
+                asyncio.run(driver.set(33.75, -84.39))
+            with self.assertRaises(SpoofError) as second:
+                asyncio.run(driver.set(33.75, -84.39))
+        self.assertEqual(first.exception.code, "link")
+        self.assertEqual(second.exception.code, "link")
+        # The second send is inside the back-off window: no second round of adb calls.
+        self.assertEqual(sum(1 for c in calls if c[:1] == ("devices",)), 1)
+        self.assertTrue(driver.connected)  # still our phone; it reconnects once it's back
+
+    def test_disconnect_does_not_reconnect(self):
+        driver = self._driver(_Writer(fail=BrokenPipeError(32, "Broken pipe")))
+        calls, p_adb, p_open = self._patch(driver, fresh=_Writer())
+        with p_adb, p_open:
+            asyncio.run(driver.disconnect())
+        self.assertFalse(driver.connected)
+        self.assertNotIn(("devices", "-l"), calls)
 
 
 if __name__ == "__main__":

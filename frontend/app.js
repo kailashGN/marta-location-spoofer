@@ -4,8 +4,19 @@
   const LS = window.LS;
   const { $, state, api } = LS;
 
+  // Fixes stopped reaching the phone (or started again): say so once, not every second.
+  let linkOk = true;
+  function watchLink(st) {
+    const ok = !(st && st.connected && st.link && !st.link.ok);
+    if (ok === linkOk) return;
+    linkOk = ok;
+    if (ok) LS.toast('done', 'Phone is getting location updates again');
+    else LS.toast('error', `Phone isn’t getting location updates · ${st.link.error || 'connection lost'} · retrying`, 6000);
+  }
+
   async function refreshStatus() {
     try { state.status = await api.get('/api/status'); } catch { state.status = null; }
+    watchLink(state.status);
     LS.render();
   }
 
