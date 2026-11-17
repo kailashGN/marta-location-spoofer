@@ -553,9 +553,21 @@
           <li><b>Holding position</b>: you pressed Hold.</li>
           <li><b>Arrived</b>: the route finished; the pin stays at the destination (good for arrival prompts and auto-end).</li>
         </ul>
-        <p><b>Hold</b> (Space) keeps the rider in place while the trip clock runs. The phone still gets fixes, unlike <b>GPS Frozen</b>. Hold at the stop past the departure to test a missed ride.</p>
+        <p><b>Hold</b> (Space) keeps the rider in place while the trip clock runs. The phone still gets fixes, unlike <b>GPS Frozen</b>. Hold at the stop past the departure to test a missed ride; then use <b>Catch a later one</b> to board the next bus or train.</p>
         <p><b>Stop trip</b> ends playback and keeps the phone where the trip stopped. Use Stop Simulating on the Place tab to return to real GPS.</p>
         ${seeRules}`,
+    },
+    later: {
+      title: 'Catch a later one', icon: 'trip',
+      html: () => `<p>Shown while the rider is at a stop, before boarding. The rider stays on the platform until the time you pick, then boards and rides on.</p>
+        <ul>
+          <li><b>+5 … +20 min</b>: the next one leaves this long after the planned departure. Use the gap from the MARTA timetable, e.g. 7:10 → 7:20 is +10 min.</li>
+          <li><b>Or leave at</b>: type the departure time shown in the MARTA app.</li>
+          <li>Everything after the stop moves by the same amount: the ride, the walks, and any later transfer.</li>
+          <li>Hold is released, so the rider boards on their own. Use it again to skip one more.</li>
+        </ul>
+        <p class="info-note">To test a missed ride: Hold at the stop, let the departure pass, then pick the next one. <b>Resume</b> on its own leaves straight away, as if on the train you missed.</p>
+        <p class="info-note">Times are real minutes, so use it at 1× speed.</p>`,
     },
     offset: {
       title: 'Off course', icon: 'offset',

@@ -41,7 +41,7 @@
 - **Place** – click the map, drag the pin, search a place, or paste `lat, lon`, then **Set Location**
 - **Trip** – drop a GPX file (or draw a route) and see a summary first: distance, duration, walk/ride legs and the leave-by time. Timed GPX replays the real timetable, joining at the current clock; **Speed** plays it 2×, 5× or 10× faster
 - **Start walking now** – for trips that begin with a walk: walk to the first stop straight away, wait there for the departure, then follow the timetable
-- **Live trip panel** – what the rider is doing right now (walking, waiting at the stop with a countdown, on the bus or train, holding, arrived), progress and time left, **Hold** and **Stop trip**
+- **Live trip panel** – what the rider is doing right now (walking, waiting at the stop with a countdown, on the bus or train, holding, arrived), progress and time left, **Hold** and **Stop trip**, and **Catch a later one** at a stop (skip a departure and board the next one; the rest of the trip moves with it)
 - **Test tools** – one compact list, one tool open at a time:
   - **Off course** – any distance (0–5000 m, presets 100 · 300 · 450 · 500 · 600 · 1000), left or right, **Jump** or **Drift** over N seconds, then back on course the same way
   - **Pace** – any walking pace from 0.25× to 4×; rides stay on the timetable
@@ -182,6 +182,7 @@ Two loops share the work: the route runner moves the on-course point along the r
 | `POST /api/route/gpx` | `gpx`, `use_gpx_times`, `time_scale`, `walk_ahead`, `loop` | Play a GPX file |
 | `POST /api/route` | `points`, `speed_mps`, `loop` | Play a drawn route |
 | `POST /api/route/pause` | `paused` | Hold or resume |
+| `POST /api/route/depart-later` | `after_planned_s` or `at` (Unix s) | Wait at the current stop for a later departure; later departures move by the same amount and Hold is released |
 | `POST /api/offset` | `side` (`left`/`right`/`none`), `meters` (0–5000), `ramp_s` (0–600) | Off course; `ramp_s` > 0 drifts. Works without a route too |
 | `POST /api/route/pace` | `factor` (0.25–4) | Walking pace |
 | `POST /api/gps` | `mode` (`normal`/`frozen`/`lost`), `jitter_m` (0–200) | GPS signal; `lost` is Android-only |
@@ -215,7 +216,7 @@ Load the GPX soon after downloading it. Its times are the real timetable, so pla
 | Card timing follows the crossing | Off course **1000 m**, **Drift** over 60 s | The 30 s starts when the fix crosses 805 m (about 48 s in, so the card shows at about 78 s) |
 | Back on course | **Back on course** (or Drift back) | Clears after **10 s** within 805 m |
 | Progress stops but no card | Off course **100–700 m** | Progress radius is **50 m** |
-| Missed departure | **Hold** at the stop past departure | Within **150 m** of the stop and **> 60 s** after departure |
+| Missed departure | **Hold** at the stop past departure (then **Catch a later one** to board the next) | Within **150 m** of the stop and **> 60 s** after departure |
 | “Can’t make it” switch | **Pace 0.5×** (or lower) on the walk to the stop | Projected arrival > departure + 60 s for **30 s** |
 | GPS lost | GPS signal **Frozen** (or **Lost signal** on Android) | “No GPS signal” after **20 s** with no usable fix; fixes worse than **100 m** don’t count |
 | No false off-course from noisy GPS | **Jitter ±40 m** | Distance check uses the raw fix |

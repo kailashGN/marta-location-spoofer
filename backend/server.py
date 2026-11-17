@@ -97,6 +97,12 @@ class PauseBody(BaseModel):
     paused: bool
 
 
+class DepartLaterBody(BaseModel):
+    # One of: seconds after the planned departure from this stop, or a Unix time.
+    after_planned_s: float | None = Field(default=None, gt=0, le=6 * 3600)
+    at: float | None = None
+
+
 class OffsetBody(BaseModel):
     side: Literal["left", "right", "none"]
     meters: float = Field(default=100, ge=0, le=OFFSET_MAX_M)
@@ -214,6 +220,11 @@ async def play_gpx(body: GpxBody) -> dict[str, Any]:
 @app.post("/api/route/pause")
 async def pause_route(body: PauseBody) -> dict[str, Any]:
     return await session.pause_route(body.paused)
+
+
+@app.post("/api/route/depart-later")
+async def depart_later(body: DepartLaterBody) -> dict[str, Any]:
+    return await session.depart_later(body.after_planned_s, body.at)
 
 
 @app.post("/api/offset")

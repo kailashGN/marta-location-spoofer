@@ -223,6 +223,24 @@
             <span id="route-eta"></span>
           </div>
           <button class="btn btn-primary" id="btn-walk-now" type="button" hidden>Start walking now</button>
+          <div class="later" id="later" hidden>
+            <div class="row between">
+              <span class="opt-label" id="later-title">Catch a later one</span>
+              <button class="info-btn" type="button" data-info="later" aria-label="About catching a later departure">i</button>
+            </div>
+            <span class="rule" id="later-sub">Next one leaves this many minutes after the planned departure</span>
+            <div class="presets" id="later-presets" role="group" aria-label="Minutes after the planned departure">
+              <button type="button" class="preset" data-min="5">+5 min</button>
+              <button type="button" class="preset" data-min="10">+10 min</button>
+              <button type="button" class="preset" data-min="15">+15 min</button>
+              <button type="button" class="preset" data-min="20">+20 min</button>
+            </div>
+            <div class="opt-row">
+              <label class="opt-label" for="later-at">Or leave at</label>
+              <input id="later-at" class="field-input input-time" type="time" step="60" aria-label="Departure time to wait for">
+              <button class="btn btn-secondary btn-sm" id="btn-later-at" type="button">Wait for it</button>
+            </div>
+          </div>
           <div class="row gap">
             <button class="btn btn-secondary" id="btn-route-pause" type="button" title="Hold position (Space)">Hold</button>
             <button class="btn btn-secondary btn-stop" id="btn-route-stop" type="button">Stop trip</button>
