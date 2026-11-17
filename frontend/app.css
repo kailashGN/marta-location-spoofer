@@ -448,6 +448,9 @@ h2 .info-btn { vertical-align: 0; margin-left: 4px; }
 .progress-bar { height: 6px; border-radius: 3px; background: var(--fill); overflow: hidden; }
 .progress-bar span { display: block; height: 100%; width: 0; background: var(--blue); border-radius: 3px; transition: width 600ms linear; }
 #route-text, #route-eta { font-variant-numeric: tabular-nums; }
+.later { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--sep); padding-top: 12px; }
+.later .opt-row { justify-content: flex-start; }
+.input-time { width: 112px; height: 32px; font-variant-numeric: tabular-nums; }
 
 /* ---- Test tools (accordion) --------------------------------------------------- */
 .tools { padding: 4px 16px; gap: 0; }

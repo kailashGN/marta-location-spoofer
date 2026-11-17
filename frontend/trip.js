@@ -312,9 +312,13 @@
     $('btn-walk-now').hidden = waitLeave == null;
     let icon = 'move', title = 'Moving', sub = '', tone = '';
     if (r.finished) { icon = 'done'; title = 'Arrived'; sub = 'Route finished · holding at the destination'; tone = 'ok'; }
+    else if (r.paused && r.boarding && r.departs_at != null && r.departs_at < Date.now() / 1000) {
+      icon = 'hold'; title = 'Missed the departure'; tone = 'warn';
+      sub = `Left at ${clock(r.departs_at)} · catch a later one below, or Resume to leave now`;
+    }
     else if (r.paused) { icon = 'hold'; title = 'Holding position'; sub = 'The trip clock keeps running'; tone = 'warn'; }
     else if (waitLeave != null) { icon = 'wait'; title = 'Waiting to leave'; sub = `Leave-by in ${LS.fmtTime(waitLeave)} · or start walking now`; }
-    else if (r.hold_s != null) { icon = 'wait'; title = 'Waiting at the stop'; sub = `Departs in ${LS.fmtTime(r.hold_s)}`; }
+    else if (r.hold_s != null) { icon = 'wait'; title = 'Waiting at the stop'; sub = `Departs ${clock(r.departs_at)} · in ${LS.fmtTime(r.hold_s)}`; }
     else if (r.timing === 'gpx' && r.leg === 'transit') { icon = 'ride'; title = 'On the bus or train'; sub = 'Following the timetable'; }
     else if (r.timing === 'gpx') { icon = 'walk'; title = 'Walking'; sub = r.pace_factor !== 1 ? `Pace ${LS.fmtX(r.pace_factor)}` : 'Following the GPX schedule'; }
     else { title = 'Moving'; sub = `${LS.fmtDist(r.speed_mps * 60)} per minute`; }
@@ -342,10 +346,53 @@
     $('route-text').textContent = `${LS.fmtDist(r.travelled_m ?? r.progress * r.total_m)} of ${LS.fmtDist(r.total_m)}`;
     const remaining = r.timing === 'gpx' && r.remaining_s != null ? r.remaining_s : (1 - r.progress) * r.total_m / r.speed_mps;
     $('route-eta').textContent = r.finished ? 'Done' : `${LS.fmtTime(remaining)} left`;
+    renderLater(r);
     $('btn-route-pause').textContent = r.paused ? 'Resume' : 'Hold';
     $('btn-route-pause').setAttribute('aria-pressed', String(!!r.paused));
     $('btn-route-pause').disabled = !!r.finished;
   }
+
+  // ------------------------------------------------------------------ catch a later departure
+  const clock = (unix) => (unix == null ? '' : new Date(unix * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  let laterFor = null; // the departure the time field was filled for
+
+  function renderLater(r) {
+    const show = !!(r.boarding && !r.finished && r.departs_at != null);
+    $('later').hidden = !show;
+    if (!show) { laterFor = null; return; }
+    const gone = r.departs_at < Date.now() / 1000;
+    $('later-title').textContent = gone ? `Missed the ${clock(r.departs_at)} · catch a later one` : `Skip the ${clock(r.departs_at)} · catch a later one`;
+    $('later-sub').textContent = `Next one leaves this many minutes after ${clock(r.departs_at)}. The rest of the trip moves with it.`;
+    const key = Math.round(r.departs_at);
+    if (laterFor !== key && document.activeElement !== $('later-at')) {
+      laterFor = key;
+      const d = new Date((r.departs_at + 600) * 1000);
+      $('later-at').value = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    }
+  }
+
+  async function departLater(body, btn) {
+    await LS.busy(btn, async () => {
+      try {
+        const st = await api.post('/api/route/depart-later', body);
+        LS.applyStatus(st);
+        const r = st.route;
+        LS.toast('status', `Waiting at the stop · leaves at ${clock(r && r.departs_at)}`);
+      } catch (e) { LS.handleError(e); }
+    });
+  }
+  $('later-presets').addEventListener('click', (e) => {
+    const b = e.target.closest('.preset'); if (!b) return;
+    departLater({ after_planned_s: +b.dataset.min * 60 }, b);
+  });
+  $('btn-later-at').addEventListener('click', () => {
+    const v = $('later-at').value; if (!v) return;
+    const [h, m] = v.split(':').map(Number);
+    const at = new Date(); at.setHours(h, m, 0, 0);
+    // Times well before now mean tomorrow (a trip running past midnight).
+    if (at.getTime() < Date.now() - 12 * 3600 * 1000) at.setDate(at.getDate() + 1);
+    departLater({ at: at.getTime() / 1000 }, $('btn-later-at'));
+  });
 
   let hadRoute = false;
   function render() {

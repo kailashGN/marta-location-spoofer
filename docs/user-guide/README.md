@@ -167,6 +167,7 @@ Click **Start trip**. The button's label shows what you picked, for example **St
 The panel shows what the rider is doing: **Walking**, **Waiting at the stop**, **On the bus or train** or **Arrived**. It also shows how far along they are and how much time is left. The blue dot on the map is where the phone thinks it is. It moves about once a second.
 
 - **Hold** keeps the rider where they are. For example, hold them at a stop past the departure time to test a missed bus. Click **Resume** to carry on.
+- **Catch a later one** appears while the rider is at a stop. After a missed bus or train, pick **+5 … +20 min** (the gap to the next one) or type its time in **Or leave at**. The rider stays on the platform until then, boards, and the rest of the trip moves later by the same amount. Clicking **Resume** instead leaves straight away, as if on the train that was missed.
 - **Stop trip** ends the trip.
 
 The test tools are underneath. One opens at a time.

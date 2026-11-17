@@ -131,6 +131,12 @@ class RouteState:
     deadlines: dict[int, float] = field(default_factory=dict)
     # Distance along ``playback`` up to each sample; GPX points are not evenly spaced.
     along_m: list[float] = field(default_factory=list)
+    # The trip began with "Start walking now" (kept apart from ``deadlines``, which later
+    # departures also use).
+    walked_ahead: bool = False
+    # ``time.monotonic()`` when the rider leaves the current point, as planned. In the past while
+    # Hold keeps the rider there after it.
+    departs_at: float | None = None
 
     def __post_init__(self) -> None:
         if not self.along_m and self.playback:
@@ -171,6 +177,14 @@ class RouteState:
         if self.finished or self.index not in self.deadlines:
             return None
         return self.wait_after(self.index)
+
+    def boarding(self) -> bool:
+        """The rider is at a stop: the next point starts a bus or train leg, or a departure is set."""
+        if self.finished or self.index >= len(self.pauses):
+            return False
+        if self.index in self.deadlines:
+            return True
+        return self.timing == "gpx" and self.leg_at(self.index) != "transit" and self.leg_at(self.index + 1) == "transit"
 
     def remaining_after(self, index: int) -> float:
         total = 0.0
@@ -252,8 +266,12 @@ class SpoofSession:
                 "legs": self._leg_runs(),
                 "pace_factor": self.route.pace_factor,
                 "leg": self.route.leg_at(self.route.index),
-                "walk_ahead": bool(self.route.deadlines),
+                "walk_ahead": self.route.walked_ahead,
                 "hold_s": self.route.hold_remaining(),
+                "boarding": self.route.boarding(),
+                # Unix time of the planned departure from the current point (past = already left).
+                "departs_at": None if self.route.departs_at is None or self.route.finished
+                else time.time() + (self.route.departs_at - time.monotonic()),
                 # Kept for v1 API clients.
                 "offset_side": side_of(self.offset.to_m),
                 "offset_m": abs(self.offset.to_m),
@@ -560,6 +578,7 @@ class SpoofSession:
         )
         if holds and timing == "gpx":
             self.route.deadlines = {i: self.route.started_at + s for i, s in holds.items()}
+            self.route.walked_ahead = True
         self.route.remaining_s = self.route.remaining_after(start_index)
         self.offset = Offset()  # every trip starts on course
         self.note("route", label or ("Trip started · GPX schedule" if timing == "gpx" else "Route started"))
@@ -576,11 +595,8 @@ class SpoofSession:
                     return
                 samples = route.playback
                 for i in range(begin, len(samples)):
-                    while self.route is not None and self.route.paused:
-                        await asyncio.sleep(0.2)
-                    if self.route is None:
+                    if self.route is not route:
                         return
-                    route = self.route
                     route.index = i
                     route.remaining_s = route.remaining_after(i)
                     leg = route.leg_at(i) if route.timing == "gpx" else None
@@ -594,7 +610,8 @@ class SpoofSession:
                             wait = route.wait_after(i)
                             if wait > 0:
                                 self.note("trip", f"At the stop · waiting {_fmt_s(wait)} for the departure")
-                        await asyncio.sleep(route.wait_after(i))
+                        await self._wait_gap(route, i)
+                    route.departs_at = None
                 if not loop:
                     break
                 begin = 0
@@ -612,6 +629,56 @@ class SpoofSession:
             log.exception("route playback failed")
         finally:
             self._route_task = None
+
+    async def _wait_gap(self, route: RouteState, i: int) -> None:
+        """Wait out the gap after point ``i``, and keep waiting while Hold is on.
+
+        Re-read every tick so a later departure set mid-wait (``depart_later``) applies.
+        """
+        start = time.monotonic()
+        while self.route is route:
+            now = time.monotonic()
+            deadline = route.deadlines.get(i)
+            route.departs_at = deadline if deadline is not None else start + route.wait_after(i)
+            left = route.departs_at - now
+            if left <= 0 and not route.paused:
+                return
+            await asyncio.sleep(0.2 if left <= 0 else min(left, 0.2))
+
+    async def depart_later(self, after_planned_s: float | None = None, at_unix: float | None = None) -> dict[str, Any]:
+        """Stay at the current point until a later departure, and move the rest of the trip with it.
+
+        ``after_planned_s`` is measured from the planned departure (the next train is 10 min after the
+        missed one); ``at_unix`` is a clock time. Later scheduled departures move by the same amount,
+        and Hold is released so the rider boards on time.
+        """
+        route = self.route
+        if route is None:
+            raise SpoofError("No route is playing", code="route")
+        if route.finished or route.index >= len(route.pauses):
+            raise SpoofError("The trip has finished", code="route")
+        if (after_planned_s is None) == (at_unix is None):
+            raise SpoofError("Give minutes after the planned departure or a clock time", code="route")
+        now = time.monotonic()
+        i = route.index
+        planned = route.departs_at if route.departs_at is not None else now
+        if after_planned_s is not None:
+            target = planned + after_planned_s
+        else:
+            target = now + (at_unix - time.time())
+        if target <= now + 1:
+            raise SpoofError("That departure has already left · pick a later time", code="route")
+        delta = target - planned
+        route.deadlines = {j: (d + delta if j > i else d) for j, d in route.deadlines.items()}
+        route.deadlines[i] = target
+        route.departs_at = target
+        route.paused = False
+        route.remaining_s = route.remaining_after(i)
+        unix = time.time() + (target - now)
+        missed = time.time() + (planned - now)
+        self.note("trip", f"Skipped the {_clock(missed)} departure · leaving at {_clock(unix)}")
+        self.poke()
+        return self.snapshot()
 
     async def pause_route(self, paused: bool) -> dict[str, Any]:
         if self.route is None:
@@ -756,6 +823,10 @@ class SpoofSession:
             return SpoofError("The phone did not answer in time", ["Unlock it and try again."], "timeout")
         text = str(exc) or exc.__class__.__name__
         return SpoofError(text, code="error")
+
+
+def _clock(unix: float) -> str:
+    return time.strftime("%H:%M:%S", time.localtime(unix))
 
 
 def _fmt_s(seconds: float) -> str:
